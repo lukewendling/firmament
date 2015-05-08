@@ -105,7 +105,7 @@ function letThereBeLight() {
 }
 
 function writeTextFileThenQuit(fs, path, text){
-    fs.writeFile(path, text);
+    fs.writeFileSync(path, text);
     process.exit(0);
 }
 
