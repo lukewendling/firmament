@@ -13,18 +13,24 @@ var configFileTemplate = [
 var moduleDependencies = {
     "docker-remote-api": "^4.4.1",
     "command-line-args": "^0.5.9",
-    "shelljs": "^0.4.0",
+    "commander": "^2.8.1",
+    "check-types": "^3.2.0",
     "jsonfile": "^2.0.0",
     "colors": "^1.1.0",
+    "prompt-sync": "^1.0.0",
+    "single-line-log": "^0.4.1",
     "yesno": "^0.0.1",
     "util": "^0.10.3"
 };
+
+var requireCache = {};
+requireCache['fs'] = require('fs');
 
 var modulesToDownload = [];
 
 for (var key in moduleDependencies) {
     try {
-        require(key);
+        requireCache[key] = require(key);
     } catch (ex) {
         if (ex.code !== 'MODULE_NOT_FOUND') {
             fatal(ex);
@@ -52,9 +58,12 @@ if (modulesToDownload.length) {
             });
             npm.commands.install(modulesToDownload, function (err, data) {
                 if (err) {
-                    fatal(ex);
+                    fatal(err);
                 }
                 console.log(data);
+                for (var key in moduleDependencies) {
+                    requireCache[key] = requireCache[key] || require(key);
+                }
                 safeLetThereBeLight();
             });
         }
@@ -64,31 +73,34 @@ if (modulesToDownload.length) {
 }
 
 function letThereBeLight() {
-    var colors = require('colors');
-    var shell = require('shelljs');
-    var cliArgs = require('command-line-args');
-    var cli = cliArgs([
-        {name: 'help', alias: 'h', type: Boolean, description: 'Print usage instructions'},
-        {name: 'template', alias: 't', type: String, description: 'Create template control JSON file'},
-        {name: 'files', type: Array, defaultOption: true, description: 'One or more JSON config files'}
-    ]);
-    var header = 'Firmament is a script to construct and control linked docker containers described in one or more';
-    header += ' JSON configuration files.';
-    var usage = cli.getUsage({
-        title: 'Firmament v.0.0.2 (08-MAY-2015)'.green,
-        header: header.green,
-        forms: ['firmament [arguments] [file1 file2 file3 ...]'],
-        footer: '\n  > "Divide The Waters, Let There Be Light"'.yellow
-    });
-    var options = cli.parse();
-    if (options.template !== undefined) {
+    var colors = requireCache['colors'];
+    var commander = requireCache['commander'];
+    var doSubCommand = false;
+    commander
+        .version('0.0.2')
+        .usage('[options] <file ...>')
+        .option('-t, --template [filename]', "Create template JSON config file. Filename defaults to '" + configFilename + "'");
+    commander
+        .command('docker [cmd]')
+        .alias('d')
+        .option('-a, --all', "Show all containers, even ones that aren't running.")
+        .action(function (cmd, options) {
+            doSubCommand = true;
+            enterDockerCmdProcessor(cmd, options);
+        });
+    commander.parse(process.argv);
+    if (doSubCommand) {
+        return;
+    }
+    if (!doSubCommand && commander.template) {
         //User has specified '-t'
-        var templateFilename = options.template ? options.template : configFilename;
+        var checkType = requireCache['check-types'];
+        var templateFilename = checkType.string(commander.template) ? commander.template : configFilename;
         console.log("\nCreating JSON template file '" + templateFilename + "' ...");
-        var fs = require('fs');
+        var fs = requireCache['fs'];
         if (fs.existsSync(templateFilename)) {
-            var yesno = require('yesno');
-            yesno.ask("Config file '" + templateFilename + "' already exists. Overwrite?", true, function (ok) {
+            var yesno = requireCache['yesno'];
+            yesno.ask("Config file '" + templateFilename + "' already exists. Overwrite? [Y/n]", true, function (ok) {
                 if (ok) {
                     writeJsonObjectToFileThenQuit(templateFilename, configFileTemplate);
                 } else {
@@ -98,12 +110,10 @@ function letThereBeLight() {
         } else {
             writeJsonObjectToFileThenQuit(templateFilename, configFileTemplate);
         }
-    } else if (options.help) {
-        showUsageThenQuit(usage);
     } else {
-        var jsonFile = require('jsonfile');
+        var jsonFile = requireCache['jsonfile'];
         //Let's try to set things up according to config files
-        var configFiles = options.files || [configFilename];
+        var configFiles = commander.args || [configFilename];
         var containerConfigs = [];
         configFiles.forEach(function (configFile) {
             try {
@@ -117,13 +127,53 @@ function letThereBeLight() {
     }
 }
 
-function processContainerConfigs(containerConfigs) {
-    var docker = require('docker-remote-api');
+function enterDockerCmdProcessor(cmd, options) {
+    var prompt = requireCache['prompt-sync'];
+    var log = requireCache['single-line-log'].stdout;
+
+    if (!cmd) {
+        log('docker>> '.green);
+        cmds = prompt();
+        if (cmds.indexOf('exit') > -1) {
+            return;
+        }
+        var cmds = cmds.match(/\S+/g);
+        var cliArgs = requireCache['command-line-args'];
+        var cli = cliArgs([{name: 'all', type: Boolean, alias: 'a'}])
+        cmd = cmds[0];
+        options = cli.parse(cmds);
+        options.callMeBack = true;
+    }
+    switch (cmd) {
+        case('ps'):
+            dockerListContainers(options, function (err, containers, callMeBack) {
+                console.log(containers);
+                if(callMeBack){
+                    enterDockerCmdProcessor();
+                }
+            });
+            break;
+    }
+}
+
+function dockerListContainers(options, cb) {
+    var docker = requireCache['docker-remote-api'];
     var request = docker({host: '/var/run/docker.sock'});
-    request.get('/images/json', {json: true}, function (err, images) {
+    var colors = requireCache['colors'];
+    var queryString = {all: options.all};
+    request.get('/containers/json', {qs: queryString, json: true}, function (err, containers) {
+        cb(err, containers, options.callMeBack);
+    });
+}
+
+function processContainerConfigs(containerConfigs) {
+    var docker = requireCache['docker-remote-api'];
+    var request = docker({host: '/var/run/docker.sock'});
+    request.get('/images/json?all=1', {json: true}, function (err, images) {
         if (err) {
             fatal(err);
         }
+        console.log('hello'.green);
         console.log(images);
     });
 }
@@ -136,13 +186,8 @@ function safeLetThereBeLight() {
     }
 }
 
-function showUsageThenQuit(usage) {
-    console.log(usage);
-    exit(0);
-}
-
 function writeJsonObjectToFileThenQuit(path, obj) {
-    var jsonFile = require('jsonfile');
+    var jsonFile = requireCache['jsonfile'];
     jsonFile.writeFileSync(path, obj);
     exit(0);
 }
