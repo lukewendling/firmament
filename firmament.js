@@ -2,7 +2,16 @@
 
 var configFilename = 'firmament.json';
 
+var configFileTemplate = [
+    {
+        containerName: '<what would you like to name your container?>',
+        imageName: '<which Docker image would you like to use to name this container?>',
+        hostName: '<what would you like the hostname of your container to be?>'
+    }
+];
+
 var moduleDependencies = {
+    "docker-remote-api": "^4.4.1",
     "command-line-args": "^0.5.9",
     "shelljs": "^0.4.0",
     "jsonfile": "^2.0.0",
@@ -54,17 +63,9 @@ if (modulesToDownload.length) {
     safeLetThereBeLight();
 }
 
-function safeLetThereBeLight(){
-    try{
-        letThereBeLight();
-    }catch(ex){
-        fatal(ex);
-    }
-}
-
 function letThereBeLight() {
-    var shell = require('shelljs');
     var colors = require('colors');
+    var shell = require('shelljs');
     var cliArgs = require('command-line-args');
     var cli = cliArgs([
         {name: 'help', alias: 'h', type: Boolean, description: 'Print usage instructions'},
@@ -72,7 +73,7 @@ function letThereBeLight() {
         {name: 'files', type: Array, defaultOption: true, description: 'One or more JSON config files'}
     ]);
     var header = 'Firmament is a script to construct and control linked docker containers described in one or more';
-    header += ' JSON config files.';
+    header += ' JSON configuration files.';
     var usage = cli.getUsage({
         title: 'Firmament v.0.0.2 (08-MAY-2015)'.green,
         header: header.green,
@@ -80,33 +81,70 @@ function letThereBeLight() {
         footer: '\n  > "Divide The Waters, Let There Be Light"'.yellow
     });
     var options = cli.parse();
-    if(options.template !== undefined){
+    if (options.template !== undefined) {
         //User has specified '-t'
         var templateFilename = options.template ? options.template : configFilename;
         console.log("\nCreating JSON template file '" + templateFilename + "' ...");
         var fs = require('fs');
-        if(fs.existsSync(templateFilename)){
+        if (fs.existsSync(templateFilename)) {
             var yesno = require('yesno');
-            yesno.ask('Are you', true, function(ok){
-                if(ok){
-                    writeTextFileThenQuit(fs, templateFilename, 'hello');
+            yesno.ask("Config file '" + templateFilename + "' already exists. Overwrite?", true, function (ok) {
+                if (ok) {
+                    writeJsonObjectToFileThenQuit(templateFilename, configFileTemplate);
+                } else {
+                    exit(0);
                 }
             });
-        }else {
-            writeTextFileThenQuit(fs, templateFilename, 'hello');
+        } else {
+            writeJsonObjectToFileThenQuit(templateFilename, configFileTemplate);
         }
+    } else if (options.help) {
+        showUsageThenQuit(usage);
+    } else {
+        var jsonFile = require('jsonfile');
+        //Let's try to set things up according to config files
+        var configFiles = options.files || [configFilename];
+        var containerConfigs = [];
+        configFiles.forEach(function (configFile) {
+            try {
+                Array.prototype.push.apply(containerConfigs, jsonFile.readFileSync(configFile));
+            }
+            catch (ex) {
+                fatal(ex);
+            }
+        });
+        processContainerConfigs(containerConfigs);
     }
-    else if(options.help){
-        console.log(usage);
-        shell.exit(0);
-    }
-    var jsonFile = require('jsonfile');
-    var c = configFilename;
 }
 
-function writeTextFileThenQuit(fs, path, text){
-    fs.writeFileSync(path, text);
-    process.exit(0);
+function processContainerConfigs(containerConfigs) {
+    var docker = require('docker-remote-api');
+    var request = docker({host: '/var/run/docker.sock'});
+    request.get('/images/json', {json: true}, function (err, images) {
+        if (err) {
+            fatal(err);
+        }
+        console.log(images);
+    });
+}
+
+function safeLetThereBeLight() {
+    try {
+        letThereBeLight();
+    } catch (ex) {
+        fatal(ex);
+    }
+}
+
+function showUsageThenQuit(usage) {
+    console.log(usage);
+    exit(0);
+}
+
+function writeJsonObjectToFileThenQuit(path, obj) {
+    var jsonFile = require('jsonfile');
+    jsonFile.writeFileSync(path, obj);
+    exit(0);
 }
 
 function fatal(ex) {
@@ -114,7 +152,11 @@ function fatal(ex) {
     console.log("\nHere's all I know:\n".yellow);
     console.log(ex);
     console.log('\n');
-    process.exit(1);
+    exit(1);
+}
+
+function exit(code) {
+    process.exit(code);
 }
 
 //var shell = require('shelljs');
