@@ -14,6 +14,8 @@ var moduleDependencies = {
     "yesno": "^0.0.1",
     "nimble": "^0.0.2",
     "deep-extend": "^0.4.0",
+    //"strong-deploy": "^2.2.0",
+    //"strong-build": "^2.0.0",
     "util": "^0.10.3"
 };
 
@@ -61,7 +63,7 @@ var containerFullConfig = {
     NetworkDisabled: false,
     MacAddress: '',
     ExposedPorts: {
-        '22/tcp': {}
+        //'22/tcp': {}
     },
     SecurityOpts: [''],
     HostConfig: {
@@ -100,6 +102,7 @@ var containerFullConfig = {
 
 var requireCache = {};
 requireCache['fs'] = require('fs');
+requireCache['path'] = require('path');
 
 var modulesToDownload = [];
 
@@ -147,23 +150,92 @@ if (modulesToDownload.length) {
     safeLetThereBeLight();
 }
 
-function letThereBeLight() {
-    var colors = requireCache['colors'];
-    var commander = requireCache['commander'];
-    var doSubCommand = false;
+function testCommandLineArgs(args) {
+    //Here we just make sure switches are contiguous (not broken up by args)
+    var argsCopy = args.slice(0);
+    var seenOptions = false;
+    var seenArgs = false;
+    while (argsCopy.length) {
+        var arg = argsCopy.shift();
+        if (/^-+/.test(arg)) {
+            if (seenArgs && seenOptions) {
+                fatal({Message: 'Poorly formed command'})
+            }
+            seenOptions = true;
+        } else {
+            seenArgs = seenOptions;
+        }
+    }
+}
+
+function rootCommander(commander) {
     commander
         .version('0.0.2')
-        .usage('[options] <file ...>')
-        .option('-t, --template [filename]', "Create template JSON config file. Filename defaults to '" + configFilename + "'");
+        .usage('[options] [command]'.yellow)
+}
+
+function makeCommander(commander) {
     commander
-        .command('docker [cmd]')
-        .alias('d')
-        .option('-a, --all', "Show all containers, even ones that aren't running.")
+        .command('make [files...]')
+        .alias('m')
+        .description("Interpret specified config file(s) or 'firmament.json'".green)
+        .option('-t, --template [filename]', "Create template config file. Filename default '" + configFilename + "'")
         .action(function (cmd, options) {
-            doSubCommand = true;
+            enterMakeCmdProcessor(cmd, options);
+        }).on('--help', function () {
+            console.log();
+            console.log('   > ps');
+
+        });
+}
+
+function dockerCommander(commander) {
+    commander
+        .command('ps')
+        .description('Show running containers'.green)
+        .option('-a, --all', "Show all containers, even ones that aren't running")
+        .action(function (cmd, options) {
             enterDockerCmdProcessor(cmd, options);
         });
-    commander.parse(process.argv);
+}
+
+function configureCommander() {
+    var colors = requireCache['colors'];
+    var path = requireCache['path'];
+    var commander = requireCache['commander'];
+    var nodePath = process.argv[0];
+    var scriptPath = process.argv[1];
+    var cmdArray = process.argv.slice(2);
+
+    testCommandLineArgs(cmdArray);
+
+    commander._name = path.basename(scriptPath,'.js');
+    //First are is not a switch
+    if (!/^-+/.test(cmdArray[0])) {
+        switch(cmdArray.shift()){
+            case('make'):
+                commander._name += ' make';
+                makeCommander(commander);
+                break;
+            case('docker'):
+                commander._name += ' docker';
+                dockerCommander(commander);
+                break;
+            default:
+                rootCommander(commander);
+                commander.outputHelp();
+                break;
+        }
+        cmdArray.unshift(scriptPath);
+        cmdArray.unshift(nodePath);
+        commander.parse(cmdArray);
+    }
+}
+
+function letThereBeLight() {
+    configureCommander();
+    return;
+    var doSubCommand = false;
     if (doSubCommand) {
         return;
     }
