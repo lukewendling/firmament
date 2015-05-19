@@ -4,20 +4,56 @@ var configFilename = 'firmament.json';
 
 var moduleDependencies = {
     "docker-remote-api": "^4.4.1",
-    "command-line-args": "^0.5.9",
+    //"command-line-args": "^0.5.9",
     "commander": "^2.8.1",
     "check-types": "^3.2.0",
     "jsonfile": "^2.0.0",
     "colors": "^1.1.0",
-    "prompt-sync": "^1.0.0",
     "single-line-log": "^0.4.1",
     "yesno": "^0.0.1",
     "nimble": "^0.0.2",
+    "corporal": "^0.5.1",
     "deep-extend": "^0.4.0",
     //"strong-deploy": "^2.2.0",
     //"strong-build": "^2.0.0",
     "util": "^0.10.3"
 };
+
+var commanderByCommandMap = {
+    root: function (commander) {
+        commander
+            .version('0.0.2')
+        commander
+            .command('docker')
+    },
+    docker: function (commander) {
+        commander
+            .command('ps')
+            .description('Show running containers'.green)
+            .option('-a, --all', "Show all containers, even ones that aren't running")
+            .action(function (cmd, options) {
+                enterDockerCmdProcessor(cmd, options);
+            });
+    },
+    make: function (commander) {
+        commander
+            .command('make [files...]')
+            .alias('m')
+            .description("Interpret specified config file(s) or 'firmament.json'".green)
+            .option('-t, --template [filename]', "Create template config file. Filename default '" + configFilename + "'")
+            .action(function (cmd, options) {
+                enterMakeCmdProcessor(cmd, options);
+            }).on('--help', function () {
+                console.log();
+                console.log('   > ps');
+            });
+    }
+};
+
+var commanderByAliasMap = {};
+for (var command in commanderByCommandMap) {
+    commanderByAliasMap[command.charAt(0)] = command;
+}
 
 var configFileTemplate = [
     {
@@ -168,40 +204,17 @@ function testCommandLineArgs(args) {
     }
 }
 
-function rootCommander(commander) {
-    commander
-        .version('0.0.2')
-        .usage('[options] [command]'.yellow)
+function loadRootCommander(commander){
+    commanderByCommandMap['root'](commander);
+    commander.parse(process.argv);
 }
 
-function makeCommander(commander) {
-    commander
-        .command('make [files...]')
-        .alias('m')
-        .description("Interpret specified config file(s) or 'firmament.json'".green)
-        .option('-t, --template [filename]', "Create template config file. Filename default '" + configFilename + "'")
-        .action(function (cmd, options) {
-            enterMakeCmdProcessor(cmd, options);
-        }).on('--help', function () {
-            console.log();
-            console.log('   > ps');
-
-        });
-}
-
-function dockerCommander(commander) {
-    commander
-        .command('ps')
-        .description('Show running containers'.green)
-        .option('-a, --all', "Show all containers, even ones that aren't running")
-        .action(function (cmd, options) {
-            enterDockerCmdProcessor(cmd, options);
-        });
+function outputTopLevelHelp(commander) {
+    loadRootCommander(commander);
+    commander.help();
 }
 
 function configureCommander() {
-    var colors = requireCache['colors'];
-    var path = requireCache['path'];
     var commander = requireCache['commander'];
     var nodePath = process.argv[0];
     var scriptPath = process.argv[1];
@@ -209,26 +222,36 @@ function configureCommander() {
 
     testCommandLineArgs(cmdArray);
 
-    commander._name = path.basename(scriptPath,'.js');
-    //First are is not a switch
-    if (!/^-+/.test(cmdArray[0])) {
-        switch(cmdArray.shift()){
-            case('make'):
-                commander._name += ' make';
-                makeCommander(commander);
-                break;
-            case('docker'):
-                commander._name += ' docker';
-                dockerCommander(commander);
-                break;
-            default:
-                rootCommander(commander);
-                commander.outputHelp();
-                break;
-        }
-        cmdArray.unshift(scriptPath);
-        cmdArray.unshift(nodePath);
-        commander.parse(cmdArray);
+    switch (cmdArray.length) {
+        case(0):
+            //$ firmament with no arguments
+            outputTopLevelHelp(commander);
+            break;
+        case(1):
+            if (/^-+/.test(cmdArray[0])) {
+                //It's a switch
+                loadRootCommander(commander);
+            } else {
+                //It's a standalone command (no switches or sub-commands)
+                if (enterCommandLineInterpreter(cmdArray[0])) {
+                    //It's a command we've never heard of
+                    outputTopLevelHelp(commander);
+                }
+            }
+            break;
+        default:
+            //It's some arbitrary command line we need to do one-shot
+            cmdArray[0] = commanderByAliasMap[cmdArray[0]] ? commanderByAliasMap[cmdArray[0]] : cmdArray[0];
+            var commanderConfig = commanderByCommandMap[cmdArray[0]];
+            if (!commanderConfig) {
+                outputTopLevelHelp(commander);
+            }
+            commander._name = path.basename(scriptPath, '.js');
+            commander._name += ' ' + cmdArray[0];
+            commanderConfig(commander);
+            cmdArray.unshift(nodePath);
+            commander.parse(cmdArray);
+            break;
     }
 }
 
@@ -274,32 +297,105 @@ function letThereBeLight() {
     }
 }
 
-function enterDockerCmdProcessor(cmd, options) {
-    var prompt = requireCache['prompt-sync'];
-    var log = requireCache['single-line-log'].stdout;
-
-    if (!cmd) {
-        log('docker>> '.green);
-        cmds = prompt();
-        if (cmds.indexOf('exit') > -1) {
-            return;
-        }
-        var cmds = cmds.match(/\S+/g);
-        var cliArgs = requireCache['command-line-args'];
-        var cli = cliArgs([{name: 'all', type: Boolean, alias: 'a'}])
-        cmd = cmds[0];
-        options = cli.parse(cmds);
-        options.callMeBack = true;
-    }
+function enterCommandLineInterpreter(cmd) {
+    var Corporal = requireCache['corporal'];
+    var cliArgs = requireCache['command-line-args'];
+    var nimble = requireCache['nimble'];
     switch (cmd) {
-        case('ps'):
-            dockerListContainers(options, function (err, containers, callMeBack) {
-                console.log(containers);
-                if (callMeBack) {
-                    enterDockerCmdProcessor();
+        case('d'):
+        case('docker'):
+            var corporal = new Corporal({
+                'commands': {
+                    'ps': {
+                        'description': 'Show running containers',
+                        'invoke': function (session, args, cb) {
+                            var cli = cliArgs([
+                                {
+                                    name: 'help',
+                                    type: Boolean,
+                                    alias: 'h',
+                                    description: 'Show usage instructions'
+                                },
+                                {
+                                    name: 'all',
+                                    type: Boolean,
+                                    alias: 'a',
+                                    description: "Show all containers, even ones that aren't running"
+                                }
+                            ]);
+                            var options = cli.parse(args);
+                            if (options.help) {
+                                console.log(cli.getUsage());
+                                cb();
+                            } else {
+                                nimble.series([function (cb2) {
+                                    dockerListContainers({all: options.all}, function (err, containers) {
+                                        console.log(containers);
+                                        cb2();
+                                    });
+                                }], cb);
+                            }
+                        }
+                    }
+                },
+                'env': {
+                    'ps1': 'docker->> '.green,
+                    'ps2': '>> '.green
                 }
             });
-            break;
+            corporal.on('load', corporal.loop);
+            return 0;
+        default:
+            //Indicate to caller this is an unknown command
+            return -1;
+    }
+}
+
+function enterDockerCmdProcessor(cmd, options) {
+    var log = requireCache['single-line-log'].stdout;
+    var colors = requireCache['colors'];
+    var nimble = requireCache['nimble'];
+    var commander = requireCache['commander'];
+
+    if (!cmd) {
+        var Corporal = requireCache['corporal'];
+        var corporal = new Corporal({
+            'commands': {
+                'ps': {
+                    'description': 'Show running containers',
+                    'invoke': function (session, args, cb) {
+                        args.unshift('one');
+                        args.unshift('two');
+                        commander
+                            .version('0.0.2')
+                            .usage('[options] [command]'.yellow)
+                            .option('-a, --all', "Show all containers, even ones that aren't running")
+                            .parse(args);
+                        console.log(args);
+                        cb();
+                        /*                        nimble.series([function(cb2){
+                         dockerListContainers({}, function (err, containers) {
+                         console.log(containers);
+                         cb2();
+                         });
+                         }], cb);*/
+                    }
+                }
+            },
+            'env': {
+                'ps1': 'docker->> '.green,
+                'ps2': '>> '.green
+            }
+        });
+        corporal.on('load', corporal.loop);
+    } else {
+        switch (cmd) {
+            case('ps'):
+                dockerListContainers(options, function (err, containers) {
+                    console.log(containers);
+                });
+                break;
+        }
     }
 }
 
@@ -309,7 +405,7 @@ function dockerListContainers(options, cb) {
     var colors = requireCache['colors'];
     var queryString = {all: options.all};
     request.get('/containers/json', {qs: queryString, json: true}, function (err, containers) {
-        cb(err, containers, options.callMeBack);
+        cb(err, containers);
     });
 }
 
