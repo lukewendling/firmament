@@ -1,399 +1,78 @@
 #!/usr/local/node/bin/node
 
-var configFilename = 'firmament.json';
+start();
 
-var moduleDependencies = {
-    "docker-remote-api": "^4.4.1",
-    "command-line-args": "^0.5.9",
-    "commander": "^2.8.1",
-    "check-types": "^3.2.0",
-    "jsonfile": "^2.0.0",
-    "colors": "^1.1.0",
-    "single-line-log": "^0.4.1",
-    "yesno": "^0.0.1",
-    "nimble": "^0.0.2",
-    "corporal": "^0.5.1",
-    "deep-extend": "^0.4.0",
-    //"strong-deploy": "^2.2.0",
-    //"strong-build": "^2.0.0",
-    "util": "^0.10.3"
-};
-
-var commanderByCommandMap = {
-    root: function (commander) {
-        commander
-            .version('0.0.2')
-        commander
-            .command('docker')
-    },
-    docker: function (commander) {
-        commander
-            .command('ps [options]')
-            .description('Show running containers'.green)
-            .option('-a, --all', "Show all containers, even ones that aren't running")
-            .action(function (dummy, options) {
-                doDockerCommand('ps', options);
-            });
-    },
-    make: function (commander) {
-        commander
-            .command('make [files...]')
-            .alias('m')
-            .description("Interpret specified config file(s) or 'firmament.json'".green)
-            .option('-t, --template [filename]', "Create template config file. Filename default '" + configFilename + "'")
-            .action(function (cmd, options) {
-                enterMakeCmdProcessor(cmd, options);
-            }).on('--help', function () {
-                console.log();
-                console.log('   > ps');
-            });
-    }
-};
-
-var commanderByAliasMap = {};
-for (var command in commanderByCommandMap) {
-    commanderByAliasMap[command.charAt(0)] = command;
+function start() {
+    assignStaticGlobals();
+    require_ResolveModuleDependencies();
+    commander_CreateCommanderCommandMap();
+    util_EnterUnhandledExceptionWrapper(letThereBeLight);
 }
 
-var configFileTemplate = [
-    {
-        name: 'mongo',
-        Image: 'mongo',
-        Hostname: 'mongo'
-    },
-    {
-        name: 'swagger',
-        Image: 'strongloop/strong-pm',
-        Hostname: 'swagger',
-        HostConfig: {
-            Links: ['mongo:mongo'],
-            PortBindings: {
-                '3000/tcp': [{HostPort: '3000'}],
-                '8701/tcp': [{HostPort: '8701'}]
-            }
-        }
-    }
-];
+function assignStaticGlobals() {
+    global.configFilename = 'firmament.json';
 
-var containerFullConfig = {
-    Image: '',
-    Hostname: '',
-    Domainname: '',
-    User: '',
-    AttachStdin: false,
-    AttachStdout: true,
-    AttachStderr: true,
-    Tty: false,
-    OpenStdin: false,
-    StdinOnce: false,
-    Env: ['ENV0=how now brown cow', 'ENV1=320'],
-    Cmd: [],
-    Entrypoint: '',
-    Labels: {
-        'version': '1.0'
-    },
-    Volumes: {
-        '/tmp': {}
-    },
-    WorkingDir: '',
-    NetworkDisabled: false,
-    MacAddress: '',
-    ExposedPorts: {
-        //'22/tcp': {}
-    },
-    SecurityOpts: [''],
-    HostConfig: {
-        Binds: null,
-        BindsExample: ['/tmp:/tmp'],
-        Links: null,
-        LinksExample: ['redis:redis'],
-        LxcConf: {'lxc.utsname': 'docker'},
-        Memory: 0,
-        MemorySwap: 0,
-        CpuShares: 512,
-        CpusetCpus: null,
-        PortBindings: null,
-        PortBindingsExample: {'22/tcp': [{'HostPort': '11022'}]},
-        PublishAllPorts: false,
-        Privileged: false,
-        ReadonlyRootfs: false,
-        Dns: null,
-        DnsExample: ['8.8.8.8', '9.9.9.9'],
-        DnsSearch: null,
-        ExtraHosts: null,
-        ExtraHostsExample: ['localhost:127.0.0.1'],
-        VolumesFrom: null,
-        VolumesFromExample: ['containerName[:<ro|rw>]'],
-        CapAdd: ['NET_ADMIN'],
-        CapDrop: ['MKNOD'],
-        RestartPolicy: {'Name': '', 'MaximumRetryCount': 0},
-        RestartPolicyExample: {'Name': '<always|on-failure>', 'MaximumRetryCount': 0},
-        NetworkMode: 'bridge',
-        Devices: null,
-        Ulimits: null,
-        LogConfig: {'Type': 'json-file', Config: {}},
-        CgroupParent: ''
-    }
-};
-
-var requireCache = {};
-requireCache['fs'] = require('fs');
-requireCache['path'] = require('path');
-
-var modulesToDownload = [];
-
-for (var key in moduleDependencies) {
-    try {
-        requireCache[key] = require(key);
-    } catch (ex) {
-        if (ex.code !== 'MODULE_NOT_FOUND') {
-            fatal(ex);
-        }
-        modulesToDownload.push(key + '@' + moduleDependencies[key]);
-    }
-}
-
-if (modulesToDownload.length) {
-    console.log("\nLooks like we're a few bricks short of a load!");
-    console.log("\nI'll try to find what we're missing ...\n");
-    console.log(modulesToDownload);
-
-    var childProcess = require('child_process');
-    var childProcessOutput = childProcess.execSync('npm root -g', {encoding: 'utf8'});
-
-    childProcessOutput = childProcessOutput.replace(/\n$/, '');
-    var npm = require(childProcessOutput + '/npm');
-    npm.load({loaded: false}, function (err) {
-        if (err) {
-            console.log(err);
-        } else {
-            npm.on('log', function (msg) {
-                console.log(msg);
-            });
-            npm.commands.install(modulesToDownload, function (err, data) {
-                if (err) {
-                    fatal(err);
-                }
-                console.log(data);
-                for (var key in moduleDependencies) {
-                    requireCache[key] = requireCache[key] || require(key);
-                }
-                safeLetThereBeLight();
-            });
-        }
-    });
-} else {
-    safeLetThereBeLight();
-}
-
-function testCommandLineArgs(args) {
-    //Here we just make sure switches are contiguous (not broken up by args)
-    var argsCopy = args.slice(0);
-    var seenOptions = false;
-    var seenArgs = false;
-    while (argsCopy.length) {
-        var arg = argsCopy.shift();
-        if (/^-+/.test(arg)) {
-            if (seenArgs && seenOptions) {
-                fatal({Message: 'Poorly formed command'})
-            }
-            seenOptions = true;
-        } else {
-            seenArgs = seenOptions;
-        }
-    }
-}
-
-function loadRootCommander(commander) {
-    commanderByCommandMap['root'](commander);
-    commander.parse(process.argv);
-}
-
-function outputTopLevelHelp(commander) {
-    loadRootCommander(commander);
-    commander.help();
-}
-
-function configureCommander() {
-    var path = requireCache['path'];
-    var commander = requireCache['commander'];
-    var nodePath = process.argv[0];
-    var scriptPath = process.argv[1];
-    var cmdArray = process.argv.slice(2);
-
-    testCommandLineArgs(cmdArray);
-
-    switch (cmdArray.length) {
-        case(0):
-            //$ firmament with no arguments
-            outputTopLevelHelp(commander);
-            break;
-        case(1):
-            if (/^-+/.test(cmdArray[0])) {
-                //It's a switch
-                loadRootCommander(commander);
-            } else {
-                //It's a standalone command (no switches or sub-commands)
-                cmdArray[0] = commanderByAliasMap[cmdArray[0]] ? commanderByAliasMap[cmdArray[0]] : cmdArray[0];
-                if (enterCommandLineInterpreter(cmdArray[0])) {
-                    //It's a command we've never heard of
-                    outputTopLevelHelp(commander);
-                }
-            }
-            break;
-        default:
-            //It's some arbitrary command line we need to do one-shot
-            cmdArray[0] = commanderByAliasMap[cmdArray[0]] ? commanderByAliasMap[cmdArray[0]] : cmdArray[0];
-            var commanderConfig = commanderByCommandMap[cmdArray[0]];
-            if (!commanderConfig) {
-                outputTopLevelHelp(commander);
-            }
-            commander._name = path.basename(scriptPath, '.js');
-            commander._name += ' ' + cmdArray[0];
-            commanderConfig(commander);
-            cmdArray.unshift(nodePath);
-            commander.parse(cmdArray);
-            break;
-    }
+    global.moduleDependencies = {
+        "docker-remote-api": "^4.4.1",
+        "command-line-args": "^0.5.9",
+        "commander": "^2.8.1",
+        "check-types": "^3.2.0",
+        "jsonfile": "^2.0.0",
+        "colors": "^1.1.0",
+        "single-line-log": "^0.4.1",
+        "yesno": "^0.0.1",
+        "nimble": "^0.0.2",
+        "corporal": "^0.5.1",
+        "deep-extend": "^0.4.0",
+        //"strong-deploy": "^2.2.0",
+        //"strong-build": "^2.0.0",
+        "util": "^0.10.3"
+    };
 }
 
 function letThereBeLight() {
-    configureCommander();
+    commander_Configure();
     return;
-    var doSubCommand = false;
-    if (doSubCommand) {
-        return;
-    }
     if (commander.template) {
         //User has specified '-t'
-        var checkType = requireCache['check-types'];
-        var templateFilename = checkType.string(commander.template) ? commander.template : configFilename;
+        var checkType = global.require_Cache['check-types'];
+        var templateFilename = checkType.string(commander.template) ? commander.template : global.configFilename;
         console.log("\nCreating JSON template file '" + templateFilename + "' ...");
-        var fs = requireCache['fs'];
+        var fs = global.require_Cache['fs'];
         if (fs.existsSync(templateFilename)) {
-            var yesno = requireCache['yesno'];
+            var yesno = global.require_Cache['yesno'];
             yesno.ask("Config file '" + templateFilename + "' already exists. Overwrite? [Y/n]", true, function (ok) {
                 if (ok) {
-                    writeJsonObjectToFileThenQuit(templateFilename, configFileTemplate);
+                    util_WriteJsonObjectToFileThenQuit(templateFilename, configFileTemplate);
                 } else {
-                    exit(0);
+                    util_Exit(0);
                 }
             });
         } else {
-            writeJsonObjectToFileThenQuit(templateFilename, configFileTemplate);
+            util_WriteJsonObjectToFileThenQuit(templateFilename, configFileTemplate);
         }
     } else {
-        var jsonFile = requireCache['jsonfile'];
+        var jsonFile = global.require_Cache['jsonfile'];
         //Let's try to set things up according to config files
-        var configFiles = commander.args.length ? commander.args : [configFilename];
+        var configFiles = commander.args.length ? commander.args : [global.configFilename];
         var containerConfigs = [];
         configFiles.forEach(function (configFile) {
             try {
                 Array.prototype.push.apply(containerConfigs, jsonFile.readFileSync(configFile));
             }
             catch (ex) {
-                fatal(ex);
+                util_Fatal(ex);
             }
         });
         processContainerConfigs(containerConfigs);
     }
 }
 
-function enterCommandLineInterpreter(cmd) {
-    var nimble = requireCache['nimble'];
-    var commands = {};
-    switch (cmd) {
-        case('docker'):
-            commands['ps'] =
-            {
-                'description': 'Show running containers',
-                'invoke': function (session, args, cb) {
-                    var options = getCLIOptions([
-                        {
-                            name: 'all',
-                            type: Boolean,
-                            alias: 'a',
-                            description: "Show all containers, even ones that aren't running"
-                        }
-                    ], args);
-                    if (options) {
-                        nimble.series([function (nimbleCallback) {
-                            dockerListContainers({all: options.all}, function (err, containers) {
-                                console.log(containers);
-                                nimbleCallback();
-                            });
-                        }], cb);
-                    } else {
-                        cb();
-                    }
-                }
-            };
-            break;
-        default:
-            //Indicate to caller this is an unknown command
-            return -1;
-    }
-    enterCorporalCLILoop(cmd, commands);
-    return 0;
-}
-
-function getCLIOptions(argArray, args) {
-    var cliArgs = requireCache['command-line-args'];
-    var lclArgArray = [
-        {
-            name: 'help',
-            type: Boolean,
-            alias: 'h',
-            description: 'Show usage instructions'
-        }
-    ];
-    Array.prototype.push.apply(lclArgArray, argArray);
-    var cli = cliArgs(lclArgArray);
-    var options = cli.parse(args);
-    if (options.help) {
-        console.log(cli.getUsage());
-        return null;
-    }
-    return options;
-}
-
-function enterCorporalCLILoop(cmd, commands) {
-    var Corporal = requireCache['corporal'];
-    var corporal = new Corporal({
-        'commands': commands,
-        'env': {
-            'ps1': cmd.green + '->> '.green,
-            'ps2': '>> '.green
-        }
-    });
-    corporal.on('load', corporal.loop);
-}
-
-function doDockerCommand(cmd, options) {
-    switch(cmd){
-        case('ps'):
-            dockerListContainers(options, function(err, containers){
-                console.log(containers);
-            });
-            break;
-    }
-}
-
-function dockerListContainers(options, cb) {
-    var docker = requireCache['docker-remote-api'];
-    var request = docker({host: '/var/run/docker.sock'});
-    var colors = requireCache['colors'];
-    var queryString = {all: options.all};
-    request.get('/containers/json', {qs: queryString, json: true}, function (err, containers) {
-        cb(err, containers);
-    });
-}
-
 function processContainerConfigs(containerConfigs) {
-    var deepExtend = requireCache['deep-extend'];
-    var docker = requireCache['docker-remote-api'];
+    var deepExtend = global.require_Cache['deep-extend'];
+    var docker = global.require_Cache['docker-remote-api'];
     var request = docker({host: '/var/run/docker.sock'});
-    var sortedContainerConfigs = dependencySort(containerConfigs);
+    var sortedContainerConfigs = makefile_ContainerDependencySort(containerConfigs);
     var functionArray = [];
 
     /*    request.post('/containers/7aa8/start', {json:{Binds:['/tmp:/tmp']}}, function (err, result) {
@@ -415,7 +94,7 @@ function processContainerConfigs(containerConfigs) {
             });
         });
     });
-    var nimble = requireCache['nimble'];
+    var nimble = global.require_Cache['nimble'];
     var containers = [];
     nimble.series([
         function (callback) {
@@ -424,7 +103,7 @@ function processContainerConfigs(containerConfigs) {
             });
         },
         function (callback) {
-            dockerListContainers({all: true}, function (err, res) {
+            docker_DoCommand('ps', {all: true}, function (err, res) {
                 containers = res;
                 callback();
             });
@@ -457,20 +136,20 @@ function startContainersSerially(containerConfigs) {
     if (!containerConfig) {
         return;
     }
-    dockerListContainers({all: true}, function (err, containers) {
+    docker_DoCommand('ps', {all: true}, function (err, containers) {
         var testName = '/' + containerConfig.name;
         for (var i = 0; i < containers.length; ++i) {
             var container = containers[i];
             for (var j = 0; j < container.Names.length; ++j) {
                 var name = container.Names[j];
                 if (testName === name) {
-                    var docker = requireCache['docker-remote-api'];
+                    var docker = global.require_Cache['docker-remote-api'];
                     var request = docker({host: '/var/run/docker.sock'});
 
                     var restCmd = '/containers/' + container.Id + '/start';
                     request.post(restCmd, function (err, result) {
                         if (err) {
-                            fatal(err);
+                            util_Fatal(err);
                         }
                         console.log(result);
                         startContainersSerially(containerConfigs);
@@ -482,28 +161,333 @@ function startContainersSerially(containerConfigs) {
     });
 }
 
-function safeLetThereBeLight() {
-    try {
-        letThereBeLight();
-    } catch (ex) {
-        fatal(ex);
+function getDockerContainerConfigTemplate() {
+    return [
+        {
+            name: 'mongo',
+            Image: 'mongo',
+            Hostname: 'mongo'
+        },
+        {
+            name: 'swagger',
+            Image: 'strongloop/strong-pm',
+            Hostname: 'swagger',
+            HostConfig: {
+                Links: ['mongo:mongo'],
+                PortBindings: {
+                    '3000/tcp': [{HostPort: '3000'}],
+                    '8701/tcp': [{HostPort: '8701'}]
+                }
+            }
+        }
+    ];
+}
+
+function getDockerContainerDefaultDescriptor() {
+    return {
+        Image: '',
+        Hostname: '',
+        Domainname: '',
+        User: '',
+        AttachStdin: false,
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+        OpenStdin: false,
+        StdinOnce: false,
+        Env: ['ENV0=how now brown cow', 'ENV1=320'],
+        Cmd: [],
+        Entrypoint: '',
+        Labels: {
+            'version': '1.0'
+        },
+        Volumes: {
+            '/tmp': {}
+        },
+        WorkingDir: '',
+        NetworkDisabled: false,
+        MacAddress: '',
+        ExposedPorts: {
+            //'22/tcp': {}
+        },
+        SecurityOpts: [''],
+        HostConfig: {
+            Binds: null,
+            BindsExample: ['/tmp:/tmp'],
+            Links: null,
+            LinksExample: ['redis:redis'],
+            LxcConf: {'lxc.utsname': 'docker'},
+            Memory: 0,
+            MemorySwap: 0,
+            CpuShares: 512,
+            CpusetCpus: null,
+            PortBindings: null,
+            PortBindingsExample: {'22/tcp': [{'HostPort': '11022'}]},
+            PublishAllPorts: false,
+            Privileged: false,
+            ReadonlyRootfs: false,
+            Dns: null,
+            DnsExample: ['8.8.8.8', '9.9.9.9'],
+            DnsSearch: null,
+            ExtraHosts: null,
+            ExtraHostsExample: ['localhost:127.0.0.1'],
+            VolumesFrom: null,
+            VolumesFromExample: ['containerName[:<ro|rw>]'],
+            CapAdd: ['NET_ADMIN'],
+            CapDrop: ['MKNOD'],
+            RestartPolicy: {'Name': '', 'MaximumRetryCount': 0},
+            RestartPolicyExample: {'Name': '<always|on-failure>', 'MaximumRetryCount': 0},
+            NetworkMode: 'bridge',
+            Devices: null,
+            Ulimits: null,
+            LogConfig: {'Type': 'json-file', Config: {}},
+            CgroupParent: ''
+        }
+    };
+}
+
+//vvvv--> Configure CLI & Commander (Add commands & so forth)
+function commander_CreateCommanderCommandMap() {
+    var deepExtend = global.require_Cache['deep-extend'];
+    global.commander_CommandMap = {
+        root: function (commander) {
+            commander
+                .version('0.0.2');
+            commander
+                .command('docker')
+                .alias('d')
+                .description('Issue Docker commands to local or remote Docker server');
+            commander
+                .command('make')
+                .alias('m')
+                .description('Issue make commands to build and deploy Docker containers');
+        },
+        docker: function (commander) {
+            commander
+                .command('ps [options]')
+                .description('Show running containers'.green)
+                .option('-a, --all', "Show all containers, even ones that aren't running")
+                .action(function (cmd, options) {
+                    docker_DoCommand('ps', options);
+                });
+        },
+        make: function (commander) {
+            commander
+                .command('template [filename]')
+                .alias('t')
+                .description("Write a makefile template to the specified filename or 'firmament.json'")
+                .action(function (cmd, options) {
+                    make_DoCommand('template', options);
+                });
+        }
+    };
+    global.commandAlias = {};
+    var commanderByAliasMap = {};
+    for (var command in global.commander_CommandMap) {
+        global.commandAlias[command.charAt(0)] = global.commandAlias[command] = command;
+        commanderByAliasMap[command.charAt(0)] = global.commander_CommandMap[command];
+    }
+    deepExtend(global.commander_CommandMap, commanderByAliasMap);
+}
+
+function cli_Enter(cmd) {
+    var nimble = global.require_Cache['nimble'];
+    var commands = {};
+    switch (cmd) {
+        case('d'):
+        case('docker'):
+            commands['ps'] =
+            {
+                'description': 'Show running containers',
+                'invoke': function (session, args, corporalCallback) {
+                    var options = cli_GetOptions([
+                        {
+                            name: 'all',
+                            type: Boolean,
+                            alias: 'a',
+                            description: "Show all containers, even ones that aren't running"
+                        }
+                    ], args);
+                    nimble.series([function (nimbleCallback) {
+                        docker_DoCommand('ps', options, nimbleCallback);
+                    }], corporalCallback);
+                }
+            };
+            break;
+        case('m'):
+        case('make'):
+            commands['template'] =
+            {
+                'description': "Create a template file with the specied filename or 'firmament.json'",
+                'invoke': function (session, args, corporalCallback) {
+                    var options = cli_GetOptions([
+                        {
+                            name: 'file',
+                            type: String,
+                            defaultOption: true,
+                            description: 'Filename to write makefile template to'
+                        }
+                    ], args);
+                    nimble.series([function (nimbleCallback) {
+                        make_DoCommand('template', options, nimbleCallback);
+                    }], corporalCallback);
+                }
+            };
+            break;
+        default:
+            //Indicate to caller this is an unknown command
+            return -1;
+    }
+    cli_CorporalLoop(cmd, commands);
+    return 0;
+}
+//^^^^--> Configure CLI & Commander (Add commands & so forth)
+
+//Docker Command Handlers
+function docker_DoCommand(cmd, options, callback) {
+    var docker = global.require_Cache['docker-remote-api'];
+    var request = docker({host: '/var/run/docker.sock'});
+    switch (cmd) {
+        case('ps'):
+            var queryString = {all: options.all};
+            request.get('/containers/json', {qs: queryString, json: true}, function (err, containers) {
+                console.log(containers);
+                if (callback) {
+                    callback();
+                }
+            });
+            break;
     }
 }
 
-function writeJsonObjectToFileThenQuit(path, obj) {
-    var jsonFile = requireCache['jsonfile'];
-    jsonFile.writeFileSync(path, obj);
-    exit(0);
+//Make Command Handlers
+function make_DoCommand(cmd, options, callback) {
+    switch (cmd) {
+        case('template'):
+            var queryString = options;
+/*            request.get('/containers/json', {qs: queryString, json: true}, function (err, containers) {
+                console.log(containers);
+                if (callback) {
+                    callback();
+                }
+            });*/
+            break;
+    }
 }
 
-function dependencySort(containerConfigs) {
+
+//Corporal CLI helpers
+function cli_CorporalLoop(cmd, commands) {
+    var Corporal = global.require_Cache['corporal'];
+    var corporal = new Corporal({
+        'commands': commands,
+        'env': {
+            'ps1': global.commandAlias[cmd].yellow + '->> '.green,
+            'ps2': '>> '.green
+        }
+    });
+    corporal.on('load', corporal.loop);
+}
+
+function cli_GetOptions(argArray, args) {
+    var cliArgs = global.require_Cache['command-line-args'];
+    var commonArgArray = [
+        {
+            name: 'help',
+            type: Boolean,
+            alias: 'h',
+            description: 'Show usage instructions'
+        }
+    ];
+    Array.prototype.push.apply(commonArgArray, argArray);
+    var cli = cliArgs(commonArgArray);
+    var options = cli.parse(args);
+    if (options.help) {
+        console.log(cli.getUsage());
+        return null;
+    }
+    return options;
+}
+
+//Commander helpers
+function commander_TestCommandLineArgs(args) {
+    //Here we just make sure switches are contiguous (not broken up by args)
+    var argsCopy = args.slice(0);
+    var seenOptions = false;
+    var seenArgs = false;
+    while (argsCopy.length) {
+        var arg = argsCopy.shift();
+        if (/^-+/.test(arg)) {
+            if (seenArgs && seenOptions) {
+                util_Fatal({Message: 'Poorly formed command'})
+            }
+            seenOptions = true;
+        } else {
+            seenArgs = seenOptions;
+        }
+    }
+}
+
+function commander_LoadRootCommand(commander) {
+    global.commander_CommandMap['root'](commander);
+    commander.parse(process.argv);
+}
+
+function commander_OutputTopLevelHelp(commander) {
+    commander_LoadRootCommand(commander);
+    commander.help();
+}
+
+function commander_Configure() {
+    var path = global.require_Cache['path'];
+    var commander = global.require_Cache['commander'];
+    var nodePath = process.argv[0];
+    var scriptPath = process.argv[1];
+    var cmdArray = process.argv.slice(2);
+
+    commander_TestCommandLineArgs(cmdArray);
+
+    switch (cmdArray.length) {
+        case(0):
+            //$ firmament with no arguments
+            commander_OutputTopLevelHelp(commander);
+            break;
+        case(1):
+            if (/^-+/.test(cmdArray[0])) {
+                //It's a switch
+                commander_LoadRootCommand(commander);
+            } else {
+                //It's a standalone command (no switches or sub-commands)
+                if (cli_Enter(cmdArray[0])) {
+                    //It's a command we've never heard of
+                    commander_OutputTopLevelHelp(commander);
+                }
+            }
+            break;
+        default:
+            //It's some arbitrary command line we need to do one-shot
+            var commanderConfig = global.commander_CommandMap[cmdArray[0]];
+            if (!commanderConfig) {
+                commander_OutputTopLevelHelp(commander);
+            }
+            commander._name = path.basename(scriptPath, '.js');
+            commander._name += ' ' + global.commandAlias[cmdArray[0]];
+            commanderConfig(commander);
+            cmdArray.unshift(nodePath);
+            commander.parse(cmdArray);
+            break;
+    }
+}
+
+//Functions to deal with interpreting our 'makefiles'
+function makefile_ContainerDependencySort(containerConfigs) {
     var sortedContainerConfigs = [];
     //Sort on linked container dependencies
     var objectToSort = {};
     var containerConfigByNameMap = {};
     containerConfigs.forEach(function (containerConfig) {
         if (containerConfigByNameMap[containerConfig.name]) {
-            fatal({Message: 'Same name is used by more than one container.'})
+            util_Fatal({Message: 'Same name is used by more than one container.'})
         }
         containerConfigByNameMap[containerConfig.name] = containerConfig;
         var dependencies = [];
@@ -515,14 +499,71 @@ function dependencySort(containerConfigs) {
         }
         objectToSort[containerConfig.name] = dependencies;
     });
-    var sortedContainerNames = topologicalDependencySort(objectToSort);
+    var sortedContainerNames = util_TopologicalDependencySort(objectToSort);
     sortedContainerNames.forEach(function (sortedContainerName) {
         sortedContainerConfigs.push(containerConfigByNameMap[sortedContainerName]);
     });
     return sortedContainerConfigs;
 }
 
-function topologicalDependencySort(graph) {
+//Module resolution (get what we need from NPM)
+function require_ResolveModuleDependencies() {
+    global.require_Cache = {};
+    global.require_Cache['fs'] = require('fs');
+    global.require_Cache['path'] = require('path');
+
+    var modulesToDownload = [];
+
+    for (var key in global.moduleDependencies) {
+        try {
+            global.require_Cache[key] = require(key);
+        } catch (ex) {
+            if (ex.code !== 'MODULE_NOT_FOUND') {
+                util_Fatal(ex);
+            }
+            modulesToDownload.push(key + '@' + global.moduleDependencies[key]);
+        }
+    }
+
+    if (modulesToDownload.length) {
+        console.log("\nLooks like we're a few bricks short of a load!");
+        console.log("\nI'll try to find what we're missing ...\n");
+        console.log(modulesToDownload);
+
+        var childProcess = require('child_process');
+        var childProcessOutput = childProcess.execSync('npm root -g', {encoding: 'utf8'});
+
+        childProcessOutput = childProcessOutput.replace(/\n$/, '');
+        var npm = require(childProcessOutput + '/npm');
+        npm.load({loaded: false}, function (err) {
+            if (err) {
+                console.log(err);
+            } else {
+                npm.on('log', function (msg) {
+                    console.log(msg);
+                });
+                npm.commands.install(modulesToDownload, function (err, data) {
+                    if (err) {
+                        util_Fatal(err);
+                    }
+                    console.log(data);
+                    for (var key in global.moduleDependencies) {
+                        global.require_Cache[key] = global.require_Cache[key] || require(key);
+                    }
+                });
+            }
+        });
+    }
+}
+
+//Uncategorized utility functions
+function util_WriteJsonObjectToFileThenQuit(path, obj) {
+    var jsonFile = global.require_Cache['jsonfile'];
+    jsonFile.writeFileSync(path, obj);
+    util_Exit(0);
+}
+
+function util_TopologicalDependencySort(graph) {
     var sorted = [], // sorted list of IDs ( returned value )
         visited = {}; // hash: id of already visited node => true
 
@@ -543,7 +584,7 @@ function topologicalDependencySort(graph) {
             var deps = graph[name];
             deps.forEach(function (dep) {
                 if (ancestors.indexOf(dep) >= 0) {
-                    fatal({Message: 'Circular dependency "' + dep + '" is required by "' + name + '": ' + ancestors.join(' -> ')});
+                    util_Fatal({Message: 'Circular dependency "' + dep + '" is required by "' + name + '": ' + ancestors.join(' -> ')});
                 }
 
                 visit(dep, ancestors.slice(0)); // recursive call
@@ -552,20 +593,28 @@ function topologicalDependencySort(graph) {
             sorted.push(name);
         });
     } catch (ex) {
-        fatal({Message: 'Linked container dependency sort failed. You are probably trying to link to an unknown container.'});
+        util_Fatal({Message: 'Linked container dependency sort failed. You are probably trying to link to an unknown container.'});
     }
     return sorted;
 }
 
-function fatal(ex) {
+function util_EnterUnhandledExceptionWrapper(fn) {
+    try {
+        fn();
+    } catch (ex) {
+        util_Fatal(ex);
+    }
+}
+
+function util_Exit(code) {
+    process.exit(code);
+}
+
+function util_Fatal(ex) {
     console.log("\nMan, sorry. Something bad happened and I can't continue. :(".yellow)
     console.log("\nHere's all I know:\n".yellow);
     console.log(ex);
     console.log('\n');
-    exit(1);
-}
-
-function exit(code) {
-    process.exit(code);
+    util_Exit(1);
 }
 
