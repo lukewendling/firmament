@@ -11,6 +11,7 @@ function start() {
 }
 
 function assignStaticGlobals() {
+    global.VERSION = '0.0.2';
     global.configFilename = 'firmament.json';
 
     global.moduleDependencies = {
@@ -29,6 +30,13 @@ function assignStaticGlobals() {
         //"strong-build": "^2.0.0",
         "util": "^0.10.3"
     };
+
+    global.ROOT_docker_Desc = 'Issue Docker commands to local or remote Docker server';
+    global.ROOT_make_Desc = 'Issue make commands to build and deploy Docker containers';
+    global.DOCKER_ps_Desc = 'Show running containers';
+    global.DOCKER_ps_all_Desc = "Show all containers, even ones that aren't running";
+    global.MAKE_template_Desc = "Write a makefile template to the specified filename or 'firmament.json'";
+    global.MAKE_template_file_Desc = 'Filename to write makefile template to';
 }
 
 function letThereBeLight() {
@@ -253,21 +261,21 @@ function commander_CreateCommanderCommandMap() {
     global.commander_CommandMap = {
         root: function (commander) {
             commander
-                .version('0.0.2');
+                .version(global.VERSION)
             commander
                 .command('docker')
                 .alias('d')
-                .description('Issue Docker commands to local or remote Docker server');
+                .description(global.ROOT_docker_Desc);
             commander
                 .command('make')
                 .alias('m')
-                .description('Issue make commands to build and deploy Docker containers');
+                .description(global.ROOT_make_Desc);
         },
         docker: function (commander) {
             commander
                 .command('ps [options]')
-                .description('Show running containers'.green)
-                .option('-a, --all', "Show all containers, even ones that aren't running")
+                .description(global.DOCKER_ps_Desc.green)
+                .option('-a, --all', global.DOCKER_ps_all_Desc)
                 .action(function (cmd, options) {
                     docker_DoCommand('ps', options);
                 });
@@ -276,9 +284,9 @@ function commander_CreateCommanderCommandMap() {
             commander
                 .command('template [filename]')
                 .alias('t')
-                .description("Write a makefile template to the specified filename or 'firmament.json'")
-                .action(function (cmd, options) {
-                    make_DoCommand('template', options);
+                .description(global.MAKE_template_Desc)
+                .action(function (filename) {
+                    make_DoCommand('template', filename || global.configFilename);
                 });
         }
     };
@@ -299,14 +307,14 @@ function cli_Enter(cmd) {
         case('docker'):
             commands['ps'] =
             {
-                'description': 'Show running containers',
+                'description': global.DOCKER_ps_Desc,
                 'invoke': function (session, args, corporalCallback) {
                     var options = cli_GetOptions([
                         {
                             name: 'all',
                             type: Boolean,
                             alias: 'a',
-                            description: "Show all containers, even ones that aren't running"
+                            description: global.DOCKER_ps_all_Desc
                         }
                     ], args);
                     nimble.series([function (nimbleCallback) {
@@ -317,16 +325,17 @@ function cli_Enter(cmd) {
             break;
         case('m'):
         case('make'):
+            commands['t'] =
             commands['template'] =
             {
-                'description': "Create a template file with the specied filename or 'firmament.json'",
+                'description': global.MAKE_template_Desc,
                 'invoke': function (session, args, corporalCallback) {
                     var options = cli_GetOptions([
                         {
                             name: 'file',
                             type: String,
                             defaultOption: true,
-                            description: 'Filename to write makefile template to'
+                            description: global.MAKE_template_file_Desc
                         }
                     ], args);
                     nimble.series([function (nimbleCallback) {
@@ -365,6 +374,7 @@ function docker_DoCommand(cmd, options, callback) {
 function make_DoCommand(cmd, options, callback) {
     switch (cmd) {
         case('template'):
+            console.log(options);
             var queryString = options;
 /*            request.get('/containers/json', {qs: queryString, json: true}, function (err, containers) {
                 console.log(containers);
@@ -375,7 +385,6 @@ function make_DoCommand(cmd, options, callback) {
             break;
     }
 }
-
 
 //Corporal CLI helpers
 function cli_CorporalLoop(cmd, commands) {
