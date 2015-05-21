@@ -4,9 +4,9 @@ start();
 
 function start() {
     assignStaticGlobals();
-    require_ResolveModuleDependencies(function(){
+    require_ResolveModuleDependencies(function () {
         commander_CreateCommanderCommandMap();
-        util_EnterUnhandledExceptionWrapper(letThereBeLight);
+        util_EnterUnhandledExceptionWrapper(commander_Configure);
     });
 }
 
@@ -18,7 +18,7 @@ function assignStaticGlobals() {
         "docker-remote-api": "^4.4.1",
         "command-line-args": "^0.5.9",
         "commander": "^2.8.1",
-        "check-types": "^3.2.0",
+        //"check-types": "^3.2.0",
         "jsonfile": "^2.0.0",
         "colors": "^1.1.0",
         "single-line-log": "^0.4.1",
@@ -35,109 +35,11 @@ function assignStaticGlobals() {
     global.ROOT_make_Desc = 'Issue make commands to build and deploy Docker containers';
     global.DOCKER_ps_Desc = 'Show running containers';
     global.DOCKER_ps_all_Desc = "Show all containers, even ones that aren't running";
+    global.DOCKER_construct_Desc = "Construct container cluster from the specified filename or 'firmament.json'";
+    global.DOCKER_construct_file_Desc = 'Name of file to read for container configurations';
     global.MAKE_template_Desc = "Write a makefile template to the specified filename or 'firmament.json'";
-    global.MAKE_template_file_Desc = 'Filename to write makefile template to';
-}
-
-function letThereBeLight() {
-    commander_Configure();
-    return;
-    if (commander.template) {
-        //User has specified '-t'
-        var checkType = global.require_Cache['check-types'];
-        var templateFilename = checkType.string(commander.template) ? commander.template : global.configFilename;
-        console.log("\nCreating JSON template file '" + templateFilename + "' ...");
-        var fs = global.require_Cache['fs'];
-        if (fs.existsSync(templateFilename)) {
-            var yesno = global.require_Cache['yesno'];
-            yesno.ask("Config file '" + templateFilename + "' already exists. Overwrite? [Y/n]", true, function (ok) {
-                if (ok) {
-                    util_WriteJsonObjectToFileThenQuit(templateFilename, configFileTemplate);
-                } else {
-                    util_Exit(0);
-                }
-            });
-        } else {
-            util_WriteJsonObjectToFileThenQuit(templateFilename, configFileTemplate);
-        }
-    } else {
-        var jsonFile = global.require_Cache['jsonfile'];
-        //Let's try to set things up according to config files
-        var configFiles = commander.args.length ? commander.args : [global.configFilename];
-        var containerConfigs = [];
-        configFiles.forEach(function (configFile) {
-            try {
-                Array.prototype.push.apply(containerConfigs, jsonFile.readFileSync(configFile));
-            }
-            catch (ex) {
-                util_Fatal(ex);
-            }
-        });
-        processContainerConfigs(containerConfigs);
-    }
-}
-
-function processContainerConfigs(containerConfigs) {
-    var deepExtend = global.require_Cache['deep-extend'];
-    var docker = global.require_Cache['docker-remote-api'];
-    var request = docker({host: '/var/run/docker.sock'});
-    var sortedContainerConfigs = makefile_ContainerDependencySort(containerConfigs);
-    var functionArray = [];
-
-    /*    request.post('/containers/7aa8/start', {json:{Binds:['/tmp:/tmp']}}, function (err, result) {
-     console.log(err || result);
-     });
-     return;*/
-    sortedContainerConfigs.forEach(function (containerConfig) {
-        functionArray.push(function (callback) {
-            var fullContainerConfigCopy = {};
-            deepExtend(fullContainerConfigCopy, containerFullConfig);
-            deepExtend(fullContainerConfigCopy, containerConfig);
-            var queryString = {name: fullContainerConfigCopy.name};
-            request.post('/containers/create', {
-                json: fullContainerConfigCopy,
-                qs: queryString
-            }, function (err, result) {
-                console.log(err || result);
-                callback();
-            });
-        });
-    });
-    var nimble = global.require_Cache['nimble'];
-    var containers = [];
-    nimble.series([
-        function (callback) {
-            nimble.parallel(functionArray, function () {
-                callback();
-            });
-        },
-        function (callback) {
-            docker_DoCommand('ps', {all: true}, function (err, res) {
-                containers = res;
-                callback();
-            });
-        },
-        function (callback) {
-            functionArray = [];
-            sortedContainerConfigs.forEach(function (containerConfig) {
-                var testName = '/' + containerConfig.name;
-                containers.forEach(function (container) {
-                    container.Names.forEach(function (name) {
-                        if (testName === name) {
-                            functionArray.push(function (callback) {
-                                var restCmd = '/containers/' + container.Id + '/start';
-                                request.post(restCmd, {json: {Dns: null}}, function (err, result) {
-                                    console.log(err || result);
-                                    callback();
-                                });
-                            });
-                        }
-                    });
-                });
-            });
-            nimble.series(functionArray, callback);
-        }
-    ]);
+    global.MAKE_template_full_Desc = 'Write full container descriptor (quite large)';
+    global.MAKE_template_file_Desc = 'Name of file to write makefile template to';
 }
 
 function startContainersSerially(containerConfigs) {
@@ -279,14 +181,29 @@ function commander_CreateCommanderCommandMap() {
                 .action(function (cmd, options) {
                     docker_DoCommand('ps', options);
                 });
+            commander
+                .command('construct [filename]')
+                .alias('c')
+                .description(global.DOCKER_construct_Desc.green)
+                .action(function (filename) {
+                    var params = {
+                        filename: filename || global.configFilename
+                    };
+                    docker_DoCommand('construct', params);
+                });
         },
         make: function (commander) {
             commander
                 .command('template [filename]')
                 .alias('t')
                 .description(global.MAKE_template_Desc)
-                .action(function (filename) {
-                    make_DoCommand('template', filename || global.configFilename);
+                .option('-f, --full', global.MAKE_template_full_Desc)
+                .action(function (filename, options) {
+                    var params = {
+                        filename: filename || global.configFilename,
+                        full: options.full
+                    };
+                    make_DoCommand('template', params);
                 });
         }
     };
@@ -309,40 +226,95 @@ function cli_Enter(cmd) {
             {
                 'description': global.DOCKER_ps_Desc,
                 'invoke': function (session, args, corporalCallback) {
-                    var options = cli_GetOptions([
-                        {
-                            name: 'all',
-                            type: Boolean,
-                            alias: 'a',
-                            description: global.DOCKER_ps_all_Desc
+                    try {
+                        var options = cli_GetOptions([
+                            {
+                                name: 'all',
+                                type: Boolean,
+                                alias: 'a',
+                                description: global.DOCKER_ps_all_Desc
+                            }
+                        ], args);
+                        if (options) {
+                            nimble.series([function (nimbleCallback) {
+                                docker_DoCommand('ps', options, nimbleCallback);
+                            }], corporalCallback);
+                        } else {
+                            corporalCallback();
                         }
-                    ], args);
-                    nimble.series([function (nimbleCallback) {
-                        docker_DoCommand('ps', options, nimbleCallback);
-                    }], corporalCallback);
+                    } catch (err) {
+                        console.log(err);
+                        corporalCallback();
+                    }
                 }
             };
+            commands['c'] =
+                commands['construct'] =
+                {
+                    'description': global.DOCKER_construct_Desc,
+                    'invoke': function (session, args, corporalCallback) {
+                        try {
+                            var options = cli_GetOptions([
+                                {
+                                    name: 'file',
+                                    type: String,
+                                    defaultOption: true,
+                                    description: global.DOCKER_construct_file_Desc
+                                }
+                            ], args);
+                            if (options) {
+                                nimble.series([function (nimbleCallback) {
+                                    var params = {filename: options.file || global.configFilename};
+                                    docker_DoCommand('construct', params, nimbleCallback);
+                                }], corporalCallback);
+                            } else {
+                                corporalCallback();
+                            }
+                        } catch (err) {
+                            console.log(err);
+                            corporalCallback();
+                        }
+                    }
+
+                };
             break;
         case('m'):
         case('make'):
             commands['t'] =
-            commands['template'] =
-            {
-                'description': global.MAKE_template_Desc,
-                'invoke': function (session, args, corporalCallback) {
-                    var options = cli_GetOptions([
-                        {
-                            name: 'file',
-                            type: String,
-                            defaultOption: true,
-                            description: global.MAKE_template_file_Desc
+                commands['template'] =
+                {
+                    'description': global.MAKE_template_Desc,
+                    'invoke': function (session, args, corporalCallback) {
+                        try {
+                            var options = cli_GetOptions([
+                                {
+                                    name: 'full',
+                                    type: Boolean,
+                                    alias: 'f',
+                                    description: global.MAKE_template_full_Desc
+                                },
+                                {
+                                    name: 'file',
+                                    type: String,
+                                    defaultOption: true,
+                                    description: global.MAKE_template_file_Desc
+                                }
+                            ], args);
+                            if (options) {
+                                nimble.series([function (nimbleCallback) {
+                                    var params = {filename: options.file || global.configFilename, full: options.full};
+                                    make_DoCommand('template', params, nimbleCallback);
+                                }], corporalCallback);
+                            } else {
+                                corporalCallback();
+                            }
+                        } catch (err) {
+                            console.log(err);
+                            corporalCallback();
                         }
-                    ], args);
-                    nimble.series([function (nimbleCallback) {
-                        make_DoCommand('template', options, nimbleCallback);
-                    }], corporalCallback);
-                }
-            };
+                    }
+
+                };
             break;
         default:
             //Indicate to caller this is an unknown command
@@ -355,35 +327,122 @@ function cli_Enter(cmd) {
 
 //Docker Command Handlers
 function docker_DoCommand(cmd, options, callback) {
+    callback = callback || function () {
+            util_Exit(0)
+        };
     var docker = global.require_Cache['docker-remote-api'];
     var request = docker({host: '/var/run/docker.sock'});
     switch (cmd) {
+        case('construct'):
+            var jsonFile = global.require_Cache['jsonfile'];
+            console.log("Constructing Docker containers described in: '" + options.filename + "'");
+            var containerDescriptors = jsonFile.readFileSync(options.filename);
+            console.log(containerDescriptors);
+            docker_ProcessContainerConfigs(containerDescriptors);
+            callback();
+            break;
         case('ps'):
             var queryString = {all: options.all};
             request.get('/containers/json', {qs: queryString, json: true}, function (err, containers) {
                 console.log(containers);
-                if (callback) {
-                    callback();
-                }
+                callback();
             });
             break;
     }
 }
 
+function docker_ProcessContainerConfigs(containerConfigs) {
+    var deepExtend = global.require_Cache['deep-extend'];
+    var docker = global.require_Cache['docker-remote-api'];
+    var request = docker({host: '/var/run/docker.sock'});
+    var sortedContainerConfigs = makefile_ContainerDependencySort(containerConfigs);
+    var functionArray = [];
+
+    /*    request.post('/containers/7aa8/start', {json:{Binds:['/tmp:/tmp']}}, function (err, result) {
+     console.log(err || result);
+     });
+     return;*/
+    sortedContainerConfigs.forEach(function (containerConfig) {
+        functionArray.push(function (callback) {
+            var fullContainerConfigCopy = {};
+            deepExtend(fullContainerConfigCopy, getDockerContainerDefaultDescriptor());
+            deepExtend(fullContainerConfigCopy, containerConfig);
+            var queryString = {name: fullContainerConfigCopy.name};
+            request.post('/containers/create', {
+                json: fullContainerConfigCopy,
+                qs: queryString
+            }, function (err, result) {
+                console.log(err || result);
+                callback();
+            });
+        });
+    });
+    var nimble = global.require_Cache['nimble'];
+    var containers = [];
+    nimble.series([
+        function (callback) {
+            nimble.parallel(functionArray, function () {
+                callback();
+            });
+        },
+        function (callback) {
+            docker_DoCommand('ps', {all: true}, function (err, res) {
+                containers = res;
+                callback();
+            });
+        },
+        function (callback) {
+            functionArray = [];
+            sortedContainerConfigs.forEach(function (containerConfig) {
+                var testName = '/' + containerConfig.name;
+                containers.forEach(function (container) {
+                    container.Names.forEach(function (name) {
+                        if (testName === name) {
+                            functionArray.push(function (callback) {
+                                var restCmd = '/containers/' + container.Id + '/start';
+                                request.post(restCmd, {json: {Dns: null}}, function (err, result) {
+                                    console.log(err || result);
+                                    callback();
+                                });
+                            });
+                        }
+                    });
+                });
+            });
+            nimble.series(functionArray, callback);
+        }
+    ]);
+}
+
 //Make Command Handlers
-function make_DoCommand(cmd, options, callback) {
+function make_DoCommand(cmd, params, callback) {
+    callback = callback || function () {
+            util_Exit(0)
+        };
     switch (cmd) {
         case('template'):
-            console.log(options);
-            var queryString = options;
-/*            request.get('/containers/json', {qs: queryString, json: true}, function (err, containers) {
-                console.log(containers);
-                if (callback) {
-                    callback();
-                }
-            });*/
+            var templateFilename = params.filename;
+            console.log("\nCreating JSON template file '" + templateFilename.yellow + "' ...");
+            var fs = global.require_Cache['fs'];
+            if (fs.existsSync(templateFilename)) {
+                var yesno = global.require_Cache['yesno'];
+                yesno.ask("Config file '" + templateFilename + "' already exists. Overwrite? [Y/n]", true, function (ok) {
+                    if (ok) {
+                        util_WriteTemplateFile(templateFilename, params.full);
+                        callback();
+                    }
+                });
+            } else {
+                util_WriteTemplateFile(templateFilename, params.full);
+                callback();
+            }
             break;
     }
+}
+
+function util_WriteTemplateFile(templateFilename, full) {
+    var objectToWrite = full ? [getDockerContainerDefaultDescriptor()] : getDockerContainerConfigTemplate()
+    util_WriteJsonObjectToFile(templateFilename, objectToWrite);
 }
 
 //Corporal CLI helpers
@@ -564,16 +623,15 @@ function require_ResolveModuleDependencies(callback) {
                 });
             }
         });
-    }else{
+    } else {
         callback();
     }
 }
 
 //Uncategorized utility functions
-function util_WriteJsonObjectToFileThenQuit(path, obj) {
+function util_WriteJsonObjectToFile(path, obj) {
     var jsonFile = global.require_Cache['jsonfile'];
     jsonFile.writeFileSync(path, obj);
-    util_Exit(0);
 }
 
 function util_TopologicalDependencySort(graph) {
