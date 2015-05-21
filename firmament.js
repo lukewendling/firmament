@@ -4,9 +4,10 @@ start();
 
 function start() {
     assignStaticGlobals();
-    require_ResolveModuleDependencies();
-    commander_CreateCommanderCommandMap();
-    util_EnterUnhandledExceptionWrapper(letThereBeLight);
+    require_ResolveModuleDependencies(function(){
+        commander_CreateCommanderCommandMap();
+        util_EnterUnhandledExceptionWrapper(letThereBeLight);
+    });
 }
 
 function assignStaticGlobals() {
@@ -507,7 +508,7 @@ function makefile_ContainerDependencySort(containerConfigs) {
 }
 
 //Module resolution (get what we need from NPM)
-function require_ResolveModuleDependencies() {
+function require_ResolveModuleDependencies(callback) {
     global.require_Cache = {};
     global.require_Cache['fs'] = require('fs');
     global.require_Cache['path'] = require('path');
@@ -550,9 +551,12 @@ function require_ResolveModuleDependencies() {
                     for (var key in global.moduleDependencies) {
                         global.require_Cache[key] = global.require_Cache[key] || require(key);
                     }
+                    callback();
                 });
             }
         });
+    }else{
+        callback();
     }
 }
 
