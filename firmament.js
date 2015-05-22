@@ -338,20 +338,19 @@ function docker_DoCommand(cmd, options, callback) {
             console.log("Constructing Docker containers described in: '" + options.filename + "'");
             var containerDescriptors = jsonFile.readFileSync(options.filename);
             console.log(containerDescriptors);
-            docker_ProcessContainerConfigs(containerDescriptors);
-            callback();
+            docker_ProcessContainerConfigs(containerDescriptors, callback);
             break;
         case('ps'):
             var queryString = {all: options.all};
             request.get('/containers/json', {qs: queryString, json: true}, function (err, containers) {
                 console.log(containers);
-                callback();
+                callback(err, containers);
             });
             break;
     }
 }
 
-function docker_ProcessContainerConfigs(containerConfigs) {
+function docker_ProcessContainerConfigs(containerConfigs, processingCompleteCallback) {
     var deepExtend = global.require_Cache['deep-extend'];
     var docker = global.require_Cache['docker-remote-api'];
     var request = docker({host: '/var/run/docker.sock'});
@@ -380,38 +379,38 @@ function docker_ProcessContainerConfigs(containerConfigs) {
     var nimble = global.require_Cache['nimble'];
     var containers = [];
     nimble.series([
-        function (callback) {
+        function (nimbleCallback) {
             nimble.parallel(functionArray, function () {
-                callback();
+                nimbleCallback();
             });
         },
-        function (callback) {
+        function (nimbleCallback) {
             docker_DoCommand('ps', {all: true}, function (err, res) {
                 containers = res;
-                callback();
+                nimbleCallback();
             });
         },
-        function (callback) {
+        function (nimbleCallback) {
             functionArray = [];
             sortedContainerConfigs.forEach(function (containerConfig) {
                 var testName = '/' + containerConfig.name;
                 containers.forEach(function (container) {
                     container.Names.forEach(function (name) {
                         if (testName === name) {
-                            functionArray.push(function (callback) {
+                            functionArray.push(function (nimbleCallback) {
                                 var restCmd = '/containers/' + container.Id + '/start';
                                 request.post(restCmd, {json: {Dns: null}}, function (err, result) {
                                     console.log(err || result);
-                                    callback();
+                                    nimbleCallback();
                                 });
                             });
                         }
                     });
                 });
             });
-            nimble.series(functionArray, callback);
+            nimble.series(functionArray, nimbleCallback);
         }
-    ]);
+    ], processingCompleteCallback);
 }
 
 //Make Command Handlers
