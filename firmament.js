@@ -17,8 +17,8 @@ function assignStaticGlobals() {
     global.moduleDependencies = {
         "docker-remote-api": "^4.4.1",
         "command-line-args": "^0.5.9",
+        "nodegit": "^0.4.0",
         "commander": "^2.8.1",
-        //"check-types": "^3.2.0",
         "jsonfile": "^2.0.0",
         "colors": "^1.1.0",
         "single-line-log": "^0.4.1",
@@ -26,8 +26,8 @@ function assignStaticGlobals() {
         "nimble": "^0.0.2",
         "corporal": "^0.5.1",
         "deep-extend": "^0.4.0",
-        //"strong-deploy": "^2.2.0",
-        //"strong-build": "^2.0.0",
+        "strong-deploy": "^2.2.1",
+        "strong-build": "^2.0.0",
         "util": "^0.10.3"
     };
 
@@ -89,6 +89,9 @@ function getDockerContainerConfigTemplate() {
                     '3000/tcp': [{HostPort: '3000'}],
                     '8701/tcp': [{HostPort: '8701'}]
                 }
+            },
+            ExpressApp:{
+                GitUrl: 'https://github.com/jreeme/TestSLC'
             }
         }
     ];
@@ -193,6 +196,13 @@ function commander_CreateCommanderCommandMap() {
                 });
         },
         make: function (commander) {
+            commander
+                .command('build')
+                .alias('b')
+                .description('Tmp Build')
+                .action(function (filename, options) {
+                    make_DoCommand('build', {});
+                });
             commander
                 .command('template [filename]')
                 .alias('t')
@@ -409,6 +419,32 @@ function docker_ProcessContainerConfigs(containerConfigs, processingCompleteCall
                 });
             });
             nimble.series(functionArray, nimbleCallback);
+        },
+        function(nimbleCallback){
+            sortedContainerConfigs.forEach(function (containerConfig) {
+                if(containerConfig.ExpressApp){
+                    if(containerConfig.ExpressApp.GitUrl){
+                        var nodeGit = global.require_Cache['nodegit'];
+                        nodeGit.Clone(containerConfig.ExpressApp.GitUrl, containerConfig.name)
+                            .then(function(repo){
+                                process.chdir(containerConfig.name);
+                                console.log('Building');
+                                var argv = [];
+                                argv.unshift(process.argv[1]);
+                                argv.unshift(process.argv[0]);
+                                global.require_Cache['strong-build'].build(argv, function(){
+                                    var strongDeploy = require('strong-deploy');
+                                    strongDeploy(process.cwd(),
+                                    'http://localhost:8701','jr_service','deploy',function(){
+                                            console.log('Deployed');
+                                            nimbleCallback();
+                                        });
+                                    console.log('Built');
+                                })
+                            });
+                    }
+                }
+            });
         }
     ], processingCompleteCallback);
 }
@@ -419,6 +455,15 @@ function make_DoCommand(cmd, params, callback) {
             util_Exit(0)
         };
     switch (cmd) {
+        case('build'):
+            console.log('Building');
+            var argv = [];
+            argv.unshift(process.argv[1]);
+            argv.unshift(process.argv[0]);
+            global.require_Cache['strong-build'].build(argv, function(){
+                console.log('Built');
+            })
+            break;
         case('template'):
             var templateFilename = params.filename;
             console.log("\nCreating JSON template file '" + templateFilename.yellow + "' ...");
