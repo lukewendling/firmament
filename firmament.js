@@ -83,10 +83,13 @@ function getDockerContainerConfigTemplate() {
             name: 'swagger',
             Image: 'strongloop/strong-pm',
             Hostname: 'swagger',
+            ExposedPorts:{
+                '3001/tcp':{}
+            },
             HostConfig: {
                 Links: ['mongo:mongo'],
                 PortBindings: {
-                    '3000/tcp': [{HostPort: '3000'}],
+                    '3001/tcp': [{HostPort: '3001'}],
                     '8701/tcp': [{HostPort: '8701'}]
                 }
             },
