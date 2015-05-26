@@ -5,15 +5,20 @@ start();
 function start() {
     assignStaticGlobals();
     require_ResolveModuleDependencies(function () {
-        util_SetupConsoleTable();
-        commander_CreateCommanderCommandMap();
-        util_EnterUnhandledExceptionWrapper(commander_Configure);
+        requireCache('wait.for').launchFiber(fiberWrapper);
     });
+}
+
+function fiberWrapper() {
+    util_SetupConsoleTable();
+    commander_CreateCommanderCommandMap();
+    util_EnterUnhandledExceptionWrapper(commander_Configure);
 }
 
 function assignStaticGlobals() {
     global.VERSION = '0.0.2';
     global.configFilename = 'firmament.json';
+    global.require_Cache = {};
 
     global.slowToLoadModuleDependencies = {
         "docker-remote-api": "^4.4.1",
@@ -29,11 +34,15 @@ function assignStaticGlobals() {
         "strong-deploy": "^2.2.1",
         "strong-build": "^2.0.0",
         "easy-table": "^0.3.0",
+        "nimble": "^0.0.2",
         "util": "^0.10.3"
     };
 
     global.moduleDependencies = {
-        "nimble": "^0.0.2"
+        //"streamline": "^0.12.1",
+        "wait.for": "^0.6.6",
+        "child_process": "",
+        "fibers": "^1.0.5"
     };
 
     global.ROOT_docker_Desc = 'Issue Docker commands to local or remote Docker server';
@@ -160,9 +169,8 @@ function commander_CreateCommanderCommandMap() {
                 .description(global.DOCKER_ps_Desc.green)
                 .option('-a, --all', global.DOCKER_ps_all_Desc)
                 .action(function (cmd, options) {
-                    docker_PS(options, function (err, containers) {
-                        docker_PrettyPrintDockerContainerList(err, containers);
-                    });
+                    var containers = docker_PS(options);
+                    docker_PrettyPrintDockerContainerList(containers);
                 });
         },
         make: function (commander) {
@@ -193,7 +201,6 @@ function commander_CreateCommanderCommandMap() {
 }
 
 function cli_Enter(cmd) {
-    var nimble = requireCache('nimble');
     var commands = {};
     switch (cmd) {
         case('d'):
@@ -211,12 +218,9 @@ function cli_Enter(cmd) {
                                 description: global.DOCKER_ps_all_Desc
                             }
                         ], args);
-                        nimble.series([function (nimbleCallback) {
-                            docker_PS(options, function (err, containers) {
-                                docker_PrettyPrintDockerContainerList(err, containers);
-                                nimbleCallback();
-                            })
-                        }], corporalCallback);
+                        var containers = docker_PS(options);
+                        docker_PrettyPrintDockerContainerList(containers);
+                        corporalCallback();
                     } catch (err) {
                         console.log(err);
                         corporalCallback();
@@ -299,21 +303,19 @@ function cli_Enter(cmd) {
 //^^^^--> Configure CLI & Commander (Add commands & so forth)
 
 //Docker Command Handlers
-function docker_PS(options, callback) {
+function docker_PS(options) {
     var docker = requireCache('docker-remote-api');
     var request = docker({host: '/var/run/docker.sock'});
-    callback = callback || util_Exit;
     var queryString = {all: options.all};
-    request.get('/containers/json', {qs: queryString, json: true}, function (err, containers) {
-        callback(err, containers);
-    });
+    //Need to do this BS to keep the scope straight in the request object (for wait.for)
+    var fn = function (path, options, callback) {
+        request.get(path, options, callback);
+    };
+    var containers = requireCache('wait.for').for(fn, '/containers/json', {qs: queryString, json: true});
+    return containers;
 }
 
-function docker_PrettyPrintDockerContainerList(err, containers) {
-    var colors = requireCache('terminal-colors');
-    if (err) {
-        console.log(err);
-    }
+function docker_PrettyPrintDockerContainerList(containers) {
     containers.sort(function (a, b) {
         return (a.Id < b.Id) ? -1 : 1
     });
@@ -332,102 +334,78 @@ function docker_PrettyPrintDockerContainerList(err, containers) {
     console.table(displayContainers);
 }
 
-function docker_ProcessContainerConfigs(containerConfigs, processingCompleteCallback) {
+//Make Command Handlers
+function make_ProcessContainerConfigs(containerConfigs, processingCompleteCallback) {
     var deepExtend = requireCache('deep-extend');
     var docker = requireCache('docker-remote-api');
     var request = docker({host: '/var/run/docker.sock'});
     var sortedContainerConfigs = makefile_ContainerDependencySort(containerConfigs);
-    var functionArray = [];
 
     /*    request.post('/containers/7aa8/start', {json:{Binds:['/tmp:/tmp']}}, function (err, result) {
      console.log(err || result);
      });
      return;*/
+    var wait = requireCache('wait.for');
+    wait.parallel.filter(sortedContainerConfigs, function (containerConfig) {
+        var fullContainerConfigCopy = {};
+        deepExtend(fullContainerConfigCopy, getDockerContainerDefaultDescriptor());
+        deepExtend(fullContainerConfigCopy, containerConfig);
+        var queryString = {name: fullContainerConfigCopy.name};
+        var fn = function (path, options, callback) {
+            request.post(path, options, callback);
+        }
+        wait.for(fn, '/containers/create', {
+            json: fullContainerConfigCopy,
+            qs: queryString
+        });
+    });
+    var containers = docker_PS({all: true});
     sortedContainerConfigs.forEach(function (containerConfig) {
-        functionArray.push(function (callback) {
-            var fullContainerConfigCopy = {};
-            deepExtend(fullContainerConfigCopy, getDockerContainerDefaultDescriptor());
-            deepExtend(fullContainerConfigCopy, containerConfig);
-            var queryString = {name: fullContainerConfigCopy.name};
-            request.post('/containers/create', {
-                json: fullContainerConfigCopy,
-                qs: queryString
-            }, function (err, result) {
-                console.log(err || result);
-                callback();
+        var testName = '/' + containerConfig.name;
+        containers.forEach(function (container) {
+            container.Names.forEach(function (name) {
+                if (testName === name) {
+                    var fn = function (path, options, callback) {
+                        request.post(path, options, callback);
+                    }
+                    var restCmd = '/containers/' + container.Id + '/start';
+                    wait.for(fn, restCmd, {json: {Dns: null}});
+                }
             });
         });
     });
-    var nimble = requireCache('nimble');
-    var containers = [];
-    nimble.series([
-        function (nimbleCallback) {
-            nimble.parallel(functionArray, function () {
-                nimbleCallback();
-            });
-        },
-        function (nimbleCallback) {
-            docker_PS({all: true}, function (err, res) {
-                containers = res;
-                nimbleCallback();
-            })
-        },
-        function (nimbleCallback) {
-            functionArray = [];
-            sortedContainerConfigs.forEach(function (containerConfig) {
-                var testName = '/' + containerConfig.name;
-                containers.forEach(function (container) {
-                    container.Names.forEach(function (name) {
-                        if (testName === name) {
-                            functionArray.push(function (nimbleCallback) {
-                                var restCmd = '/containers/' + container.Id + '/start';
-                                request.post(restCmd, {json: {Dns: null}}, function (err, result) {
-                                    console.log(err || result);
-                                    nimbleCallback();
+    sortedContainerConfigs.forEach(function (containerConfig) {
+        if (containerConfig.ExpressApp) {
+            if (containerConfig.ExpressApp.GitUrl) {
+                var nodeGit = requireCache('nodegit');
+                var strongBuild = requireCache('strong-build');
+                var strongDeploy = requireCache('strong-deploy');
+                nodeGit.Clone(containerConfig.ExpressApp.GitUrl, containerConfig.name)
+                    .then(function (repo) {
+                        process.chdir(containerConfig.name);
+                        console.log('Building');
+                        var argv = [];
+                        argv.unshift(process.argv[1]);
+                        argv.unshift(process.argv[0]);
+                        strongBuild.build(argv, function () {
+                            strongDeploy(process.cwd(),
+                                'http://localhost:8701', 'jr_service', 'deploy', function () {
+                                    console.log('Deployed');
                                 });
-                            });
-                        }
+                            console.log('Built');
+                        })
                     });
-                });
-            });
-            nimble.series(functionArray, nimbleCallback);
-        },
-        function (nimbleCallback) {
-            sortedContainerConfigs.forEach(function (containerConfig) {
-                if (containerConfig.ExpressApp) {
-                    if (containerConfig.ExpressApp.GitUrl) {
-                        var nodeGit = requireCache('nodegit');
-                        nodeGit.Clone(containerConfig.ExpressApp.GitUrl, containerConfig.name)
-                            .then(function (repo) {
-                                process.chdir(containerConfig.name);
-                                console.log('Building');
-                                var argv = [];
-                                argv.unshift(process.argv[1]);
-                                argv.unshift(process.argv[0]);
-                                requireCache('strong-build').build(argv, function () {
-                                    var strongDeploy = require('strong-deploy');
-                                    strongDeploy(process.cwd(),
-                                        'http://localhost:8701', 'jr_service', 'deploy', function () {
-                                            console.log('Deployed');
-                                            nimbleCallback();
-                                        });
-                                    console.log('Built');
-                                })
-                            });
-                    }
-                }
-            });
+            }
         }
-    ], processingCompleteCallback);
+    });
 }
 
-//Make Command Handlers
-function make_BUILD(filename, options, callback) {
+function make_BUILD(filename, options) {
     var jsonFile = requireCache('jsonfile');
     console.log("Constructing Docker containers described in: '" + filename + "'");
     var containerDescriptors = jsonFile.readFileSync(filename);
     console.log(containerDescriptors);
-    docker_ProcessContainerConfigs(containerDescriptors, callback);
+    make_ProcessContainerConfigs(containerDescriptors);
 }
 
 function make_TEMPLATE(filename, options, callback) {
@@ -583,7 +561,6 @@ function makefile_ContainerDependencySort(containerConfigs) {
 }
 
 //Module resolution (get what we need from NPM)
-
 function requireCache(moduleName) {
     if (global.require_Cache[moduleName]) {
         return global.require_Cache[moduleName];
@@ -597,68 +574,46 @@ function requireCache(moduleName) {
         }
     }
 
-    var nimble = requireCache('nimble');
-    nimble.series([
-        function (nimbleCallback) {
-            console.log("Looking for '" + moduleName + "' in dependency list ...")
-            var version = global.slowToLoadModuleDependencies[moduleName];
-            var modulesToDownload = [version ? moduleName + '@' + global.slowToLoadModuleDependencies[moduleName] : moduleName];
-            require_NpmInstall(modulesToDownload, nimbleCallback);
-        }
-    ], function () {
-        console.log("Installed: '" + moduleName + "' ...")
-    });
+    console.log("Looking for '" + moduleName + "' in dependency list ...")
+    var version = global.slowToLoadModuleDependencies[moduleName];
+    var modulesToDownload = [version && version.length ? moduleName + '@' + version : moduleName];
 
-    return global.require_Cache[moduleName];
+    requireCache('wait.for').for(require_NpmInstall, modulesToDownload);
+
+    return global.require_Cache[moduleName] = require(moduleName);
 }
 
 function require_NpmInstall(modulesToDownload, callback) {
+    if (!modulesToDownload || !modulesToDownload.length) {
+        callback();
+    }
     var npm = global.require_Cache['npm'];
     if (!npm) {
         var childProcess = requireCache('child_process');
         var childProcessOutput = childProcess.execSync('npm root -g', {encoding: 'utf8'});
         childProcessOutput = childProcessOutput.replace(/\n$/, '');
-        npm = require(childProcessOutput + '/npm');
         npm = global.require_Cache['npm'] = require(childProcessOutput + '/npm');
-    }
-
-    var nimble = requireCache('nimble');
-    nimble.series([
-            function (nimbleCallback) {
-                npm.load({loaded: false}, function (err) {
-                    if (err) {
-                        console.log(err);
-                    } else {
-                        /*                    npm.on('log', function (msg) {
-                         console.log(msg);
-                         });*/
-
-                        var wait = require('wait.for');
-                        var data = wait.for(npm.commands.install, modulesToDownload);
-                        var d= data;
-/*                        npm.commands.install(modulesToDownload, function (err, data) {
-                            if (err) {
-                                util_Fatal(err);
-                            }
-                            console.log(data);
-                            for (var key in global.moduleDependencies) {
-                                global.require_Cache[key] = global.require_Cache[key] || require(key);
-                            }
-                        });*/
-                    }
-                });
-            }
-        ],
-        function () {
-            callback();
+        npm.load({loaded: false}, function (err) {
+            npm.commands.install(modulesToDownload, function (err, data) {
+                if (err) {
+                    util_Fatal(err);
+                }
+                console.log(data);
+                callback(err, data);
+            });
         });
+    } else {
+        npm.commands.install(modulesToDownload, function (err, data) {
+            if (err) {
+                util_Fatal(err);
+            }
+            console.log(data);
+            callback(err, data);
+        });
+    }
 }
 
 function require_ResolveModuleDependencies(callback) {
-    global.require_Cache = {};
-    global.require_Cache['fs'] = require('fs');
-    global.require_Cache['path'] = require('path');
-
     var modulesToDownload = [];
 
     for (var key in global.moduleDependencies) {
