@@ -16,9 +16,10 @@ function fiberWrapper() {
 }
 
 function assignStaticGlobals() {
-  global.VERSION = '0.0.2';
+  global.VERSION = '0.0.3';
   global.configFilename = 'firmament.json';
   global.require_Cache = {};
+  global.firmamentEmitter = new (requireCache('events'))();
 
   global.slowToLoadModuleDependencies = {
     "docker-remote-api": "^4.4.1",
@@ -39,8 +40,8 @@ function assignStaticGlobals() {
   };
 
   global.moduleDependencies = {
-    //"streamline": "^0.12.1",
     "wait.for": "^0.6.6",
+    "events": "",
     "child_process": "",
     "fibers": "^1.0.5"
   };
@@ -192,7 +193,9 @@ function commander_CreateCommanderCommandMap() {
         .description(global.MAKE_template_Desc)
         .option('-f, --full', global.MAKE_template_full_Desc)
         .action(function (filename, options) {
-          make_TEMPLATE(filename || global.configFilename, options);
+          make_TEMPLATE(filename || global.configFilename, options, function (err) {
+            util_Exit(err);
+          });
         });
     }
   };
@@ -206,6 +209,9 @@ function commander_CreateCommanderCommandMap() {
 }
 
 function cli_Enter(cmd) {
+  //The 'invoke' callbacks in the CLI come from the great beyond somewhere and most definitely
+  //not from within a fiber so all our 'wait.for's break unless we spin up a fiber to handle them
+  var wait = requireCache('wait.for');
   var commands = {};
   switch (cmd) {
     case('d'):
@@ -214,22 +220,25 @@ function cli_Enter(cmd) {
       {
         'description': global.DOCKER_ps_Desc,
         'invoke': function (session, args, corporalCallback) {
-          try {
-            var options = cli_GetOptions([
-              {
-                name: 'all',
-                type: Boolean,
-                alias: 'a',
-                description: global.DOCKER_ps_all_Desc
+          global.firmamentEmitter.once('docker-ps-event', function (args, callback) {
+            wait.launchFiber(function () {
+              try {
+                var options = cli_GetOptions([
+                  {
+                    name: 'all',
+                    type: Boolean,
+                    alias: 'a',
+                    description: global.DOCKER_ps_all_Desc
+                  }
+                ], args);
+                var containers = docker_PS(options);
+                docker_PrettyPrintDockerContainerList(containers);
+              } catch (err) {
+                util_LogError(err);
               }
-            ], args);
-            var containers = docker_PS(options);
-            docker_PrettyPrintDockerContainerList(containers);
-            corporalCallback();
-          } catch (err) {
-            console.log(err);
-            corporalCallback();
-          }
+              callback();
+            });
+          }).emit('docker-ps-event', args, corporalCallback);
         }
       };
     case('m'):
@@ -239,62 +248,59 @@ function cli_Enter(cmd) {
         {
           'description': global.MAKE_build_Desc,
           'invoke': function (session, args, corporalCallback) {
-            try {
-              var options = cli_GetOptions([
-                {
-                  name: 'file',
-                  type: String,
-                  defaultOption: true,
-                  description: global.MAKE_build_file_Desc
+            global.firmamentEmitter.once('make-build-event', function (args, callback) {
+              wait.launchFiber(function () {
+                try {
+                  var options = cli_GetOptions([
+                    {
+                      name: 'file',
+                      type: String,
+                      defaultOption: true,
+                      description: global.MAKE_build_file_Desc
+                    }
+                  ], args);
+                  make_BUILD(options.file || global.configFilename);
+                } catch (err) {
+                  util_LogError(err);
                 }
-              ], args);
-              if (options) {
-                nimble.series([function (nimbleCallback) {
-                  make_BUILD(filename || global.configFilename, nimbleCallback);
-                }], corporalCallback);
-              } else {
-                corporalCallback();
-              }
-            } catch (err) {
-              console.log(err);
-              corporalCallback();
-            }
+                callback();
+              });
+            }).emit('make-build-event', args, corporalCallback);
           }
         };
-      break;
       commands['t'] =
         commands['template'] =
         {
           'description': global.MAKE_template_Desc,
           'invoke': function (session, args, corporalCallback) {
-            try {
-              var options = cli_GetOptions([
-                {
-                  name: 'full',
-                  type: Boolean,
-                  alias: 'f',
-                  description: global.MAKE_template_full_Desc
-                },
-                {
-                  name: 'file',
-                  type: String,
-                  defaultOption: true,
-                  description: global.MAKE_template_file_Desc
+            global.firmamentEmitter.once('docker-template-event', function (args, callback) {
+              wait.launchFiber(function () {
+                try {
+                  var options = cli_GetOptions([
+                    {
+                      name: 'full',
+                      type: Boolean,
+                      alias: 'f',
+                      description: global.MAKE_template_full_Desc
+                    },
+                    {
+                      name: 'file',
+                      type: String,
+                      defaultOption: true,
+                      description: global.MAKE_template_file_Desc
+                    }
+                  ], args);
+                  make_TEMPLATE(options.file || global.configFilename, options, function(err){
+                    util_LogError(err);
+                    callback();
+                  });
+                } catch (err) {
+                  util_LogError(err);
                 }
-              ], args);
-              if (options) {
-                nimble.series([function (nimbleCallback) {
-                  make_TEMPLATE(filename || global.configFilename, options, nimbleCallback);
-                }], corporalCallback);
-              } else {
-                corporalCallback();
-              }
-            } catch (err) {
-              console.log(err);
-              corporalCallback();
-            }
+                //callback();
+              });
+            }).emit('docker-template-event', args, corporalCallback);
           }
-
         };
       break;
     default:
@@ -360,7 +366,7 @@ function docker_CreateContainer(containerConfig) {
     if (ex.status === 409) {
       console.log("Container '" + fullContainerConfigCopy.name + "' already exists.");
     } else {
-      console.log(ex);
+      util_LogError(ex);
     }
   }
 }
@@ -375,7 +381,7 @@ function docker_StartContainer(containerName, containers) {
         try {
           return wait.for(docker_Post, path, {json: {Dns: null}});
         } catch (ex) {
-          console.log(ex);
+          util_LogError(ex);
         }
       }
     });
@@ -384,7 +390,7 @@ function docker_StartContainer(containerName, containers) {
 
 //Make Command Handlers
 function make_ProcessContainerConfigs(containerConfigs, processingCompleteCallback) {
-  var sortedContainerConfigs = makefile_ContainerDependencySort(containerConfigs);
+  var sortedContainerConfigs = util_ContainerDependencySort(containerConfigs);
   var wait = requireCache('wait.for');
   wait.parallel.filter(sortedContainerConfigs, function (containerConfig) {
     docker_CreateContainer(containerConfig);
@@ -419,14 +425,13 @@ function make_ProcessContainerConfigs(containerConfigs, processingCompleteCallba
             var serviceName = cc.ExpressApp.ServiceName || path.basename(url.parse(cc.ExpressApp.GitUrl).path);
             var gitBranchName = cc.ExpressApp.GitBranchName || 'deploy';
             var retVal = wait.launchFiber(make_StrongDeploy, process.cwd(), strongLoopServerUrl, serviceName, gitBranchName);
-            var r = retVal;
           })
         });
     }
   });
 }
 
-function make_StrongBuild(argv){
+function make_StrongBuild(argv) {
   var strongBuild = requireCache('strong-build');
   var wait = requireCache('wait.for');
   return wait.for(strongBuild, argv);
@@ -447,20 +452,19 @@ function make_BUILD(filename, options) {
 }
 
 function make_TEMPLATE(filename, options, callback) {
-  callback = callback || util_Exit;
   console.log("\nCreating JSON template file '" + filename + "' ...");
   var fs = requireCache('fs');
   if (fs.existsSync(filename)) {
     var yesno = requireCache('yesno');
     yesno.ask("Config file '" + filename + "' already exists. Overwrite? [Y/n]", true, function (ok) {
       if (ok) {
-        util_WriteTemplateFile(filename, options.full);
+        util_WriteTemplateFile(filename, options.full, callback);
+      } else {
+        callback({Message: 'Canceled'});
       }
-      callback();
     });
   } else {
-    util_WriteTemplateFile(filename, options.full);
-    callback();
+    util_WriteTemplateFile(filename, options.full, callback);
   }
 }
 
@@ -567,33 +571,6 @@ function commander_Configure() {
   }
 }
 
-//Functions to deal with interpreting our 'makefiles'
-function makefile_ContainerDependencySort(containerConfigs) {
-  var sortedContainerConfigs = [];
-  //Sort on linked container dependencies
-  var objectToSort = {};
-  var containerConfigByNameMap = {};
-  containerConfigs.forEach(function (containerConfig) {
-    if (containerConfigByNameMap[containerConfig.name]) {
-      util_Fatal({Message: 'Same name is used by more than one container.'})
-    }
-    containerConfigByNameMap[containerConfig.name] = containerConfig;
-    var dependencies = [];
-    if (containerConfig.HostConfig && containerConfig.HostConfig.Links) {
-      containerConfig.HostConfig.Links.forEach(function (link) {
-        var linkName = link.split(':')[0];
-        dependencies.push(linkName);
-      });
-    }
-    objectToSort[containerConfig.name] = dependencies;
-  });
-  var sortedContainerNames = util_TopologicalDependencySort(objectToSort);
-  sortedContainerNames.forEach(function (sortedContainerName) {
-    sortedContainerConfigs.push(containerConfigByNameMap[sortedContainerName]);
-  });
-  return sortedContainerConfigs;
-}
-
 //Module resolution (get what we need from NPM)
 function requireCache(moduleName) {
   if (global.require_Cache[moduleName]) {
@@ -619,32 +596,33 @@ function requireCache(moduleName) {
 
 function require_NpmInstall(modulesToDownload, callback) {
   if (!modulesToDownload || !modulesToDownload.length) {
-    callback();
+    callback({Message: 'require_NpmInstall() called with no modules to install'});
   }
   var npm = global.require_Cache['npm'];
   if (!npm) {
     var childProcess = requireCache('child_process');
-    var childProcessOutput = childProcess.execSync('npm root -g', {encoding: 'utf8'});
+    var childProcessOutput = childProcess.execSync('npm root -g', {encoding: 'utf8', stdio: 'pipe'});
     childProcessOutput = childProcessOutput.replace(/\n$/, '');
     npm = global.require_Cache['npm'] = require(childProcessOutput + '/npm');
     npm.load({loaded: false}, function (err) {
-      npm.commands.install(modulesToDownload, function (err, data) {
-        if (err) {
-          util_Fatal(err);
-        }
-        console.log(data);
-        callback(err, data);
-      });
-    });
-  } else {
-    npm.commands.install(modulesToDownload, function (err, data) {
       if (err) {
         util_Fatal(err);
       }
-      console.log(data);
-      callback(err, data);
+      require_InstallNodeModules(npm, modulesToDownload, callback);
     });
+  } else {
+    require_InstallNodeModules(npm, modulesToDownload, callback);
   }
+}
+
+function require_InstallNodeModules(npm, modulesToDownload, callback) {
+  npm.commands.install(modulesToDownload, function (err, data) {
+    if (err) {
+      util_Fatal(err);
+    }
+    console.log(data);
+    callback(err, data);
+  });
 }
 
 function require_ResolveModuleDependencies(callback) {
@@ -663,32 +641,31 @@ function require_ResolveModuleDependencies(callback) {
 
   if (modulesToDownload.length) {
     console.log("\nLooks like we're a few bricks short of a load!");
-    console.log("\nI'll try to find what we're missing ...\n");
+    console.log("\nI'll try to find what we're missing (could take a couple of minutes) ...\n");
     console.log(modulesToDownload);
 
     var childProcess = require('child_process');
-    var childProcessOutput = childProcess.execSync('npm root -g', {encoding: 'utf8'});
+    var childProcessOutput = childProcess.execSync('npm root -g', {encoding: 'utf8', stdio: 'pipe'});
 
     childProcessOutput = childProcessOutput.replace(/\n$/, '');
     var npm = require(childProcessOutput + '/npm');
     npm.load({loaded: false}, function (err) {
       if (err) {
-        console.log(err);
-      } else {
-        npm.on('log', function (msg) {
-          console.log(msg);
-        });
-        npm.commands.install(modulesToDownload, function (err, data) {
-          if (err) {
-            util_Fatal(err);
-          }
-          console.log(data);
-          for (var key in global.moduleDependencies) {
-            global.require_Cache[key] = global.require_Cache[key] || require(key);
-          }
-          callback();
-        });
+        util_Fatal(err);
       }
+      npm.on('log', function (msg) {
+        console.log(msg);
+      });
+      npm.commands.install(modulesToDownload, function (err, data) {
+        if (err) {
+          util_Fatal(err);
+        }
+        console.log(data);
+        for (var key in global.moduleDependencies) {
+          global.require_Cache[key] = global.require_Cache[key] || require(key);
+        }
+        callback();
+      });
     });
   } else {
     callback();
@@ -696,10 +673,36 @@ function require_ResolveModuleDependencies(callback) {
 }
 
 //Uncategorized utility functions
-function util_WriteJsonObjectToFile(path, obj) {
+function util_WriteJsonObjectToFile(path, obj, callback) {
   var jsonFile = requireCache('jsonfile');
   jsonFile.spaces = 2;
-  jsonFile.writeFileSync(path, obj);
+  jsonFile.writeFile(path, obj, callback);
+}
+
+function util_ContainerDependencySort(containerConfigs) {
+  var sortedContainerConfigs = [];
+  //Sort on linked container dependencies
+  var objectToSort = {};
+  var containerConfigByNameMap = {};
+  containerConfigs.forEach(function (containerConfig) {
+    if (containerConfigByNameMap[containerConfig.name]) {
+      util_Fatal({Message: 'Same name is used by more than one container.'})
+    }
+    containerConfigByNameMap[containerConfig.name] = containerConfig;
+    var dependencies = [];
+    if (containerConfig.HostConfig && containerConfig.HostConfig.Links) {
+      containerConfig.HostConfig.Links.forEach(function (link) {
+        var linkName = link.split(':')[0];
+        dependencies.push(linkName);
+      });
+    }
+    objectToSort[containerConfig.name] = dependencies;
+  });
+  var sortedContainerNames = util_TopologicalDependencySort(objectToSort);
+  sortedContainerNames.forEach(function (sortedContainerName) {
+    sortedContainerConfigs.push(containerConfigByNameMap[sortedContainerName]);
+  });
+  return sortedContainerConfigs;
 }
 
 function util_TopologicalDependencySort(graph) {
@@ -745,16 +748,21 @@ function util_EnterUnhandledExceptionWrapper(fn) {
   }
 }
 
-function util_Exit(code) {
-  process.exit(code);
+function util_Exit(err, code) {
+  util_LogError(err);
+  process.exit(err ? code || -1 : code);
 }
 
 function util_Fatal(ex) {
-  console.log("\nMan, sorry. Something bad happened and I can't continue. :(".yellow)
-  console.log("\nHere's all I know:\n".yellow);
-  console.log(ex);
-  console.log('\n');
-  util_Exit(1);
+  console.log("\nMan, sorry. Something bad happened and I can't continue. :(");
+  console.log("\nHere's all I know:\n");
+  util_Exit(ex);
+}
+
+function util_LogError(err){
+  if(err){
+    console.log(err);
+  }
 }
 
 function util_SetupConsoleTable() {
@@ -836,8 +844,8 @@ function util_SetupConsoleTable() {
   };
 }
 
-function util_WriteTemplateFile(templateFilename, full) {
+function util_WriteTemplateFile(templateFilename, full, callback) {
   var objectToWrite = full ? [getDockerContainerDefaultDescriptor()] : getDockerContainerConfigTemplate()
-  util_WriteJsonObjectToFile(templateFilename, objectToWrite);
+  util_WriteJsonObjectToFile(templateFilename, objectToWrite, callback);
 }
 
