@@ -49,6 +49,7 @@ function assignStaticGlobals() {
   global.ROOT_docker_Desc = 'Issue Docker commands to local or remote Docker server';
   global.ROOT_make_Desc = 'Issue make commands to build and deploy Docker containers';
   global.DOCKER_ps_Desc = 'Show running containers';
+  global.DOCKER_start_Desc = 'Start docker container (use firmament ID)';
   global.DOCKER_ps_all_Desc = "Show all containers, even ones that aren't running";
   global.MAKE_build_Desc = "Construct container cluster from the specified filename or 'firmament.json'";
   global.MAKE_build_file_Desc = 'Name of file to read for container configurations';
@@ -170,6 +171,19 @@ function commander_CreateCommanderCommandMap() {
         .description(global.ROOT_make_Desc);
     },
     docker: function (commander) {
+      commander
+        .command('start <ID>')
+        .description(global.DOCKER_start_Desc.green)
+        .action(function (ID) {
+          var containers = docker_PS({all: true});
+          var displayContainers = docker_PrettyPrintDockerContainerList(containers, true);
+          for(var i = 0;i < displayContainers.length;++i){
+            if(displayContainers[i].ID == ID){
+              console.log("Starting conatiner: '" + displayContainers[i].Name + "'");
+              docker_StartContainer('/' + displayContainers[i].Name, containers);
+            }
+          }
+        });
       commander
         .command('ps [options]')
         .description(global.DOCKER_ps_Desc.green)
@@ -320,7 +334,15 @@ function docker_PS(options) {
   return wait.for(docker_Get, '/containers/json', {qs: queryString, json: true});
 }
 
-function docker_PrettyPrintDockerContainerList(containers) {
+function docker_PrettyPrintDockerContainerList(containers, noprint) {
+  console.log('');//Line feed
+  if(!containers || !containers.length){
+    if(!noprint){
+      console.log('No Running Containers\n');
+    }
+    return [];
+  }
+
   containers.sort(function (a, b) {
     return (a.Id < b.Id) ? -1 : 1
   });
@@ -336,7 +358,10 @@ function docker_PrettyPrintDockerContainerList(containers) {
     };
     displayContainers.push(displayContainer);
   });
-  console.table(displayContainers);
+  if(!noprint){
+    console.table(displayContainers);
+  }
+  return displayContainers;
 }
 
 function docker_Get(path, options, callback) {
