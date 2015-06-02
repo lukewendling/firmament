@@ -69,14 +69,19 @@ function assignStaticGlobals() {
 function getDockerContainerConfigTemplate() {
   return [
     {
+      name: 'ubuntu',
+      Image: 'ubuntu',
+      Hostname: 'ubuntu'
+    },
+    {
       name: 'mongo',
       Image: 'mongo',
       Hostname: 'mongo'
     },
     {
-      name: 'swagger',
+      name: 'strongloop',
       Image: 'strongloop/strong-pm',
-      Hostname: 'swagger',
+      Hostname: 'strongloop',
       ExposedPorts: {
         '3001/tcp': {},
         '3002/tcp': {}
@@ -89,12 +94,20 @@ function getDockerContainerConfigTemplate() {
           '8701/tcp': [{HostPort: '8701'}]
         }
       },
-      ExpressApps: [{
-        GitUrl: 'https://github.com/jreeme/TestSLC',
-        GitBranchName: 'deploy',
-        StrongLoopServerUrl: 'http://localhost:8701',
-        ServiceName: 'TestSLC'
-      }]
+      ExpressApps: [
+        {
+          GitUrl: 'https://github.com/jreeme/AminoLoopBack',
+          GitBranchName: 'deploy',
+          StrongLoopServerUrl: 'http://localhost:8701',
+          ServiceName: 'AminoLoopBack'
+        },
+        {
+          GitUrl: 'https://github.com/jreeme/AminoWebApp',
+          GitBranchName: 'deploy',
+          StrongLoopServerUrl: 'http://localhost:8701',
+          ServiceName: 'AminoWebApp'
+        }
+      ]
     }
   ];
 }
@@ -162,17 +175,6 @@ function getDockerContainerDefaultDescriptor() {
   };
 }
 
-function docker_StartOrStopContainersByFirmamentIds(IDs, start) {
-  IDs.forEach(function (ID) {
-    var containers = docker_PS({all: start});
-    var containerName = docker_GetContainerNameByFermamentId(ID, containers);
-    if (containerName) {
-      console.log((start ? 'Starting' : 'Stopping') + " container: '" + containerName + "'");
-      docker_StartOrStopContainer(containerName, containers, start);
-    }
-  });
-}
-
 //vvvv--> Configure CLI & Commander (Add commands & so forth)
 function commander_CreateCommanderCommandMap() {
   var deepExtend = requireCache('deep-extend');
@@ -212,7 +214,7 @@ function commander_CreateCommanderCommandMap() {
         .option('-a, --all', global.DOCKER_ps_all_Desc)
         .action(function (cmd, options) {
           var containers = docker_PS(options);
-          docker_PrettyPrintDockerContainerList(containers);
+          docker_PrettyPrintDockerContainerList(containers, false, options.all);
         });
     },
     make: function (commander) {
@@ -323,7 +325,7 @@ function cli_Enter(cmd) {
               console.log(optionsAndUsage.usage);
             } else {
               var containers = docker_PS(optionsAndUsage.options);
-              docker_PrettyPrintDockerContainerList(containers);
+              docker_PrettyPrintDockerContainerList(containers, false, optionsAndUsage.options.all);
             }
             callback();
           }, args, corporalCallback);
@@ -397,17 +399,28 @@ function cli_Enter(cmd) {
 //^^^^--> Configure CLI & Commander (Add commands & so forth)
 
 //Docker Command Handlers
+function docker_StartOrStopContainersByFirmamentIds(IDs, start) {
+  IDs.forEach(function (ID) {
+    var containers = docker_PS({all: start});
+    var containerName = docker_GetContainerNameByFermamentId(ID, containers);
+    if (containerName) {
+      console.log((start ? 'Starting' : 'Stopping') + " container: '" + containerName + "'");
+      docker_StartOrStopContainer(containerName, containers, start);
+    }
+  });
+}
+
 function docker_PS(options) {
   var wait = requireCache('wait.for');
   var queryString = {all: options.all};
   return wait.for(docker_Get, '/containers/json', {qs: queryString, json: true});
 }
 
-function docker_PrettyPrintDockerContainerList(containers, noprint) {
+function docker_PrettyPrintDockerContainerList(containers, noprint, all) {
   console.log('');//Line feed
   if (!containers || !containers.length) {
     if (!noprint) {
-      console.log('No Running Containers\n');
+      console.log('No ' + (all ? '' : 'Running ') + 'Containers\n');
     }
     return [];
   }
@@ -510,40 +523,77 @@ function make_ProcessContainerConfigs(containerConfigs, processingCompleteCallba
 
   //Start the containers
   sortedContainerConfigs.forEach(function (containerConfig) {
-    docker_StartOrStopContainer(containerConfig.name, containers, true);
+    docker_StartOrStopContainer('/' + containerConfig.name, containers, true);
   });
 
   //Deploy the Express applications
   sortedContainerConfigs.forEach(function (containerConfig) {
-    var cc = containerConfig;
-    if (cc.ExpressApp && cc.ExpressApp.GitUrl) {
-      var nodeGit = requireCache('nodegit');
-      var strongBuild = requireCache('strong-build');
-      cc.name += (new Date()).getTime();
-      nodeGit.Clone(cc.ExpressApp.GitUrl, cc.name)
-        .then(function (repo) {
-          process.chdir(cc.name);
-          console.log('Building');
-          var argv = [];
-          argv.unshift(process.argv[1]);
-          argv.unshift(process.argv[0]);
-          strongBuild.build(argv, function () {
-            var strongLoopServerUrl = cc.ExpressApp.StrongLoopServerUrl || 'http://localhost:8701';
-            var url = requireCache('url');
-            var path = requireCache('path');
-            var serviceName = cc.ExpressApp.ServiceName || path.basename(url.parse(cc.ExpressApp.GitUrl).path);
-            var gitBranchName = cc.ExpressApp.GitBranchName || 'deploy';
-            var retVal = wait.launchFiber(make_StrongDeploy, process.cwd(), strongLoopServerUrl, serviceName, gitBranchName);
-          })
+    if (!containerConfig.ExpressApps) {
+      return;
+    }
+
+    wait.parallel.filter(containerConfig.ExpressApps, function (expressApp) {
+      expressApp.GitCloneFolder = process.cwd() + '/' + expressApp.ServiceName + (new Date()).getTime();
+      wait.for(make_GitClone, expressApp.GitUrl, expressApp.GitCloneFolder);
+    });
+
+    wait.parallel.filter(containerConfig.ExpressApps, function (expressApp) {
+      var argv = ['--scripts'];
+      argv.unshift(process.argv[1]);
+      argv.unshift(process.argv[0]);
+      wait.for(make_StrongBuild, argv, expressApp.GitCloneFolder);
+    });
+
+    console.log('StrongBuilt!');
+
+    return;
+    try {
+      var cc = containerConfig;
+      if (cc.ExpressApps) {
+        cc.ExpressApps.forEach(function (expressApp) {
+          var localFolder = expressApp.ServiceName + (new Date()).getTime();
+          wait.for(make_GitClone, expressApp.GitUrl, localFolder);
+          console.log('finished:' + localFolder);
+          /*          nodeGit.Clone(expressApp.GitUrl, localFolder)
+           .then(function (repo) {
+           process.chdir(localFolder);
+           console.log('Building');
+           var argv = [];
+           argv.unshift(process.argv[1]);
+           argv.unshift(process.argv[0]);
+           strongBuild.build(argv, function () {
+           var strongLoopServerUrl = expressApp.StrongLoopServerUrl || 'http://localhost:8701';
+           var url = requireCache('url');
+           var path = requireCache('path');
+           var serviceName = expressApp.ServiceName || path.basename(url.parse(expressApp.GitUrl).path);
+           var gitBranchName = expressApp.GitBranchName || 'deploy';
+           wait.launchFiber(make_StrongDeploy, process.cwd(), strongLoopServerUrl, serviceName, gitBranchName);
+           })
+           });*/
         });
+      }
+    } catch (ex) {
+      util_LogError(ex);
     }
   });
 }
 
-function make_StrongBuild(argv) {
+function make_GitClone(gitUrl, localFolder, callback) {
+  var nodeGit = requireCache('nodegit');
+  nodeGit.Clone(gitUrl, localFolder)
+    .then(function (repo) {
+      console.log("git clone: '" + gitUrl + "' -> '" + localFolder + "'");
+      callback(null, null);
+    });
+}
+
+function make_StrongBuild(argv, gitCloneFolder, callback) {
   var strongBuild = requireCache('strong-build');
-  var wait = requireCache('wait.for');
-  return wait.for(strongBuild, argv);
+  process.chdir(gitCloneFolder);
+  strongBuild.build(argv, function(){
+    console.log("strong-build:  -> '" + gitCloneFolder + "'");
+    callback(null, null);
+  });
 }
 
 function make_StrongDeploy(cwd, strongLoopServerUrl, serviceName, gitBranchName) {
