@@ -50,9 +50,17 @@ function assignStaticGlobals() {
   global.ROOT_make_Desc = 'Issue make commands to build and deploy Docker containers';
   global.DOCKER_ps_Desc = 'Show running containers';
   global.DOCKER_start_Desc = 'Start docker container (use firmament ID)';
+  global.DOCKER_stop_Desc = 'Stop docker container (use firmament ID)';
+  global.DOCKER_start_ids_Desc = "Fermament IDs of containers to start";
+  global.DOCKER_stop_ids_Desc = "Fermament IDs of containers to stop";
   global.DOCKER_ps_all_Desc = "Show all containers, even ones that aren't running";
+  global.DOCKER_ps_Usage = "Docker 'ps' command usage:";
+  global.DOCKER_start_Usage = "Docker 'start' command usage:";
+  global.DOCKER_stop_Usage = "Docker 'stop' command usage:";
+  global.MAKE_build_Usage = "Make 'build' command usage:";
   global.MAKE_build_Desc = "Construct container cluster from the specified filename or 'firmament.json'";
   global.MAKE_build_file_Desc = 'Name of file to read for container configurations';
+  global.MAKE_template_Usage = "Make 'template' command usage:";
   global.MAKE_template_Desc = "Write a makefile template to the specified filename or 'firmament.json'";
   global.MAKE_template_full_Desc = 'Write full container descriptor (quite large)';
   global.MAKE_template_file_Desc = 'Name of file to write makefile template to';
@@ -154,13 +162,13 @@ function getDockerContainerDefaultDescriptor() {
   };
 }
 
-function docker_StartContainersByFirmamentIds(IDs){
-  IDs.forEach(function(ID){
-    var containers = docker_PS({all: true});
+function docker_StartOrStopContainersByFirmamentIds(IDs, start) {
+  IDs.forEach(function (ID) {
+    var containers = docker_PS({all: start});
     var containerName = docker_GetContainerNameByFermamentId(ID, containers);
-    if(containerName){
-      console.log("Starting conatainer: '" + containerName + "'");
-      docker_StartContainer(containerName, containers);
+    if (containerName) {
+      console.log((start ? 'Starting' : 'Stopping') + " container: '" + containerName + "'");
+      docker_StartOrStopContainer(containerName, containers, start);
     }
   });
 }
@@ -183,12 +191,20 @@ function commander_CreateCommanderCommandMap() {
     },
     docker: function (commander) {
       commander
+        .command('stop <ID> [otherIDs...]')
+        .description(global.DOCKER_stop_Desc)
+        .action(function (ID, otherIDs) {
+          var IDs = [ID];
+          Array.prototype.push.apply(IDs, otherIDs);
+          docker_StartOrStopContainersByFirmamentIds(IDs, false);
+        });
+      commander
         .command('start <ID> [otherIDs...]')
         .description(global.DOCKER_start_Desc)
         .action(function (ID, otherIDs) {
           var IDs = [ID];
           Array.prototype.push.apply(IDs, otherIDs);
-          docker_StartContainersByFirmamentIds(IDs);
+          docker_StartOrStopContainersByFirmamentIds(IDs, true);
         });
       commander
         .command('ps [options]')
@@ -236,21 +252,56 @@ function cli_Enter(cmd) {
   switch (cmd) {
     case('d'):
     case('docker'):
+      commands['stop'] =
+      {
+        'description': global.DOCKER_stop_Desc,
+        'invoke': function (session, args, corporalCallback) {
+          util_CallFunctionInFiber(function (callback) {
+            var optionsAndUsage = cli_GetOptionsAndUsage([
+              {
+                name: 'ids',
+                type: Array,
+                alias: 'i',
+                defaultOption: true,
+                description: global.DOCKER_stop_ids_Desc
+              }
+            ], args, {header: global.DOCKER_stop_Usage});
+            if (optionsAndUsage.options.help) {
+              console.log(optionsAndUsage.usage);
+            } else {
+              if (optionsAndUsage.options.ids) {
+                docker_StartOrStopContainersByFirmamentIds(optionsAndUsage.options.ids, false);
+              } else {
+                console.log(optionsAndUsage.usage);
+              }
+            }
+            callback();
+          }, args, corporalCallback);
+        }
+      };
       commands['start'] =
       {
         'description': global.DOCKER_start_Desc,
         'invoke': function (session, args, corporalCallback) {
           util_CallFunctionInFiber(function (callback) {
-            var options = cli_GetOptions([
+            var optionsAndUsage = cli_GetOptionsAndUsage([
               {
-                name: 'all',
-                type: Boolean,
-                alias: 'a',
-                description: global.DOCKER_ps_all_Desc
+                name: 'ids',
+                type: Array,
+                alias: 'i',
+                defaultOption: true,
+                description: global.DOCKER_start_ids_Desc
               }
-            ], args);
-            var containers = docker_PS(options);
-            docker_PrettyPrintDockerContainerList(containers);
+            ], args, {header: global.DOCKER_start_Usage});
+            if (optionsAndUsage.options.help) {
+              console.log(optionsAndUsage.usage);
+            } else {
+              if (optionsAndUsage.options.ids) {
+                docker_StartOrStopContainersByFirmamentIds(optionsAndUsage.options.ids, true);
+              } else {
+                console.log(optionsAndUsage.usage);
+              }
+            }
             callback();
           }, args, corporalCallback);
         }
@@ -260,68 +311,80 @@ function cli_Enter(cmd) {
         'description': global.DOCKER_ps_Desc,
         'invoke': function (session, args, corporalCallback) {
           util_CallFunctionInFiber(function (callback) {
-            var options = cli_GetOptions([
+            var optionsAndUsage = cli_GetOptionsAndUsage([
               {
                 name: 'all',
                 type: Boolean,
                 alias: 'a',
                 description: global.DOCKER_ps_all_Desc
               }
-            ], args);
-            var containers = docker_PS(options);
-            docker_PrettyPrintDockerContainerList(containers);
+            ], args, {header: global.DOCKER_ps_Usage});
+            if (optionsAndUsage.options.help) {
+              console.log(optionsAndUsage.usage);
+            } else {
+              var containers = docker_PS(optionsAndUsage.options);
+              docker_PrettyPrintDockerContainerList(containers);
+            }
             callback();
           }, args, corporalCallback);
         }
       };
+      break;
     case('m'):
     case('make'):
-      commands['b'] =
-        commands['build'] =
-        {
-          'description': global.MAKE_build_Desc,
-          'invoke': function (session, args, corporalCallback) {
-            util_CallFunctionInFiber(function (callback) {
-              var options = cli_GetOptions([
-                {
-                  name: 'file',
-                  type: String,
-                  defaultOption: true,
-                  description: global.MAKE_build_file_Desc
-                }
-              ], args);
-              make_BUILD(options.file || global.configFilename);
+      commands['build'] =
+      {
+        'description': global.MAKE_build_Desc,
+        'invoke': function (session, args, corporalCallback) {
+          util_CallFunctionInFiber(function (callback) {
+            var optionsAndUsage = cli_GetOptionsAndUsage([
+              {
+                name: 'file',
+                type: String,
+                defaultOption: true,
+                description: global.MAKE_build_file_Desc
+              }
+            ], args, {header: global.MAKE_build_Usage});
+            if (optionsAndUsage.options.help) {
+              console.log(optionsAndUsage.usage);
+            } else {
+              make_BUILD(optionsAndUsage.options.file || global.configFilename);
+            }
+            callback();
+          }, args, corporalCallback);
+        }
+      };
+      commands['template'] =
+      {
+        'description': global.MAKE_template_Desc,
+        'invoke': function (session, args, corporalCallback) {
+          util_CallFunctionInFiber(function (callback) {
+            var optionsAndUsage = cli_GetOptionsAndUsage([
+              {
+                name: 'full',
+                type: Boolean,
+                alias: 'f',
+                description: global.MAKE_template_full_Desc
+              },
+              {
+                name: 'file',
+                type: String,
+                defaultOption: true,
+                description: global.MAKE_template_file_Desc
+              }
+            ], args, {header: global.MAKE_template_Usage});
+            if (optionsAndUsage.options.help) {
+              console.log(optionsAndUsage.usage);
               callback();
-            }, args, corporalCallback);
-          }
-        };
-      commands['t'] =
-        commands['template'] =
-        {
-          'description': global.MAKE_template_Desc,
-          'invoke': function (session, args, corporalCallback) {
-            util_CallFunctionInFiber(function (callback) {
-              var options = cli_GetOptions([
-                {
-                  name: 'full',
-                  type: Boolean,
-                  alias: 'f',
-                  description: global.MAKE_template_full_Desc
-                },
-                {
-                  name: 'file',
-                  type: String,
-                  defaultOption: true,
-                  description: global.MAKE_template_file_Desc
-                }
-              ], args);
-              make_TEMPLATE(options.file || global.configFilename, options, function (err) {
+            } else {
+              make_TEMPLATE(optionsAndUsage.options.file || global.configFilename, optionsAndUsage.options, function (err) {
                 util_LogError(err);
                 callback();
               });
-            }, args, corporalCallback);
-          }
-        };
+            }
+          }, args, corporalCallback);
+        }
+      };
       break;
     default:
       //Indicate to caller this is an unknown command
@@ -403,10 +466,10 @@ function docker_CreateContainer(containerConfig) {
   }
 }
 
-function docker_StartContainer(containerName, containers) {
+function docker_StartOrStopContainer(containerName, containers, start) {
   var wait = requireCache('wait.for');
   var containerDockerId = docker_GetContainerDockerIdByName(containerName, containers);
-  var path = '/containers/' + containerDockerId + '/start';
+  var path = '/containers/' + containerDockerId + (start ? '/start' : '/stop');
   try {
     return wait.for(docker_Post, path, {json: {Dns: null}});
   } catch (ex) {
@@ -415,10 +478,9 @@ function docker_StartContainer(containerName, containers) {
 }
 
 function docker_GetContainerDockerIdByName(containerName, containers) {
-  containers = containers || docker_PS({all: true});
   //Brute force is fun!
-  for(var i = 0;i < containers.length;++i){
-    for(var j = 0;j < containers[i].Names.length;++j){
+  for (var i = 0; i < containers.length; ++i) {
+    for (var j = 0; j < containers[i].Names.length; ++j) {
       if (containerName === containers[i].Names[j]) {
         return containers[i].Id;
       }
@@ -427,7 +489,6 @@ function docker_GetContainerDockerIdByName(containerName, containers) {
 }
 
 function docker_GetContainerNameByFermamentId(fermamentId, containers) {
-  containers = containers || docker_PS({all: true});
   var displayContainers = docker_PrettyPrintDockerContainerList(containers, true);
   for (var i = 0; i < displayContainers.length; ++i) {
     if (displayContainers[i].ID == fermamentId) {
@@ -449,7 +510,7 @@ function make_ProcessContainerConfigs(containerConfigs, processingCompleteCallba
 
   //Start the containers
   sortedContainerConfigs.forEach(function (containerConfig) {
-    docker_StartContainer(containerConfig.name, containers);
+    docker_StartOrStopContainer(containerConfig.name, containers, true);
   });
 
   //Deploy the Express applications
@@ -529,7 +590,8 @@ function cli_CorporalLoop(cmd, commands) {
   corporal.on('load', corporal.loop);
 }
 
-function cli_GetOptions(argArray, args) {
+function cli_GetOptionsAndUsage(argArray, args, usageConfig) {
+  usageConfig = usageConfig || {};
   var cliArgs = requireCache('command-line-args');
   var commonArgArray = [
     {
@@ -542,11 +604,8 @@ function cli_GetOptions(argArray, args) {
   Array.prototype.push.apply(commonArgArray, argArray);
   var cli = cliArgs(commonArgArray);
   var options = cli.parse(args);
-  if (options.help) {
-    console.log(cli.getUsage());
-    return null;
-  }
-  return options;
+  var usage = cli.getUsage(usageConfig);
+  return {options: options, usage: usage};
 }
 
 //Commander helpers
@@ -900,7 +959,6 @@ function util_WriteTemplateFile(templateFilename, full, callback) {
 function util_CallFunctionInFiber(fn, args, callback) {
   var wait = requireCache('wait.for');
   var eventName = ((new Date()).getTime()).toString();
-  console.log('eventName:' + eventName);
   global.firmamentEmitter.once(eventName, function (args, callback) {
     wait.launchFiber(function (args, callback) {
       try {
