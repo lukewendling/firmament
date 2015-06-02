@@ -154,6 +154,17 @@ function getDockerContainerDefaultDescriptor() {
   };
 }
 
+function docker_StartContainersByFirmamentIds(IDs){
+  IDs.forEach(function(ID){
+    var containers = docker_PS({all: true});
+    var containerName = docker_GetContainerNameByFermamentId(ID, containers);
+    if(containerName){
+      console.log("Starting conatainer: '" + containerName + "'");
+      docker_StartContainer(containerName, containers);
+    }
+  });
+}
+
 //vvvv--> Configure CLI & Commander (Add commands & so forth)
 function commander_CreateCommanderCommandMap() {
   var deepExtend = requireCache('deep-extend');
@@ -172,17 +183,12 @@ function commander_CreateCommanderCommandMap() {
     },
     docker: function (commander) {
       commander
-        .command('start <ID>')
-        .description(global.DOCKER_start_Desc.green)
-        .action(function (ID) {
-          var containers = docker_PS({all: true});
-          var displayContainers = docker_PrettyPrintDockerContainerList(containers, true);
-          for(var i = 0;i < displayContainers.length;++i){
-            if(displayContainers[i].ID == ID){
-              console.log("Starting conatainer: '" + displayContainers[i].Name + "'");
-              console.log(docker_StartContainer(displayContainers[i].Name, containers));
-            }
-          }
+        .command('start <ID> [otherIDs...]')
+        .description(global.DOCKER_start_Desc)
+        .action(function (ID, otherIDs) {
+          var IDs = [ID];
+          Array.prototype.push.apply(IDs, otherIDs);
+          docker_StartContainersByFirmamentIds(IDs);
         });
       commander
         .command('ps [options]')
@@ -230,29 +236,42 @@ function cli_Enter(cmd) {
   switch (cmd) {
     case('d'):
     case('docker'):
+      commands['start'] =
+      {
+        'description': global.DOCKER_start_Desc,
+        'invoke': function (session, args, corporalCallback) {
+          util_CallFunctionInFiber(function (callback) {
+            var options = cli_GetOptions([
+              {
+                name: 'all',
+                type: Boolean,
+                alias: 'a',
+                description: global.DOCKER_ps_all_Desc
+              }
+            ], args);
+            var containers = docker_PS(options);
+            docker_PrettyPrintDockerContainerList(containers);
+            callback();
+          }, args, corporalCallback);
+        }
+      };
       commands['ps'] =
       {
         'description': global.DOCKER_ps_Desc,
         'invoke': function (session, args, corporalCallback) {
-          global.firmamentEmitter.once('docker-ps-event', function (args, callback) {
-            wait.launchFiber(function () {
-              try {
-                var options = cli_GetOptions([
-                  {
-                    name: 'all',
-                    type: Boolean,
-                    alias: 'a',
-                    description: global.DOCKER_ps_all_Desc
-                  }
-                ], args);
-                var containers = docker_PS(options);
-                docker_PrettyPrintDockerContainerList(containers);
-              } catch (err) {
-                util_LogError(err);
+          util_CallFunctionInFiber(function (callback) {
+            var options = cli_GetOptions([
+              {
+                name: 'all',
+                type: Boolean,
+                alias: 'a',
+                description: global.DOCKER_ps_all_Desc
               }
-              callback();
-            });
-          }).emit('docker-ps-event', args, corporalCallback);
+            ], args);
+            var containers = docker_PS(options);
+            docker_PrettyPrintDockerContainerList(containers);
+            callback();
+          }, args, corporalCallback);
         }
       };
     case('m'):
@@ -262,24 +281,18 @@ function cli_Enter(cmd) {
         {
           'description': global.MAKE_build_Desc,
           'invoke': function (session, args, corporalCallback) {
-            global.firmamentEmitter.once('make-build-event', function (args, callback) {
-              wait.launchFiber(function () {
-                try {
-                  var options = cli_GetOptions([
-                    {
-                      name: 'file',
-                      type: String,
-                      defaultOption: true,
-                      description: global.MAKE_build_file_Desc
-                    }
-                  ], args);
-                  make_BUILD(options.file || global.configFilename);
-                } catch (err) {
-                  util_LogError(err);
+            util_CallFunctionInFiber(function (callback) {
+              var options = cli_GetOptions([
+                {
+                  name: 'file',
+                  type: String,
+                  defaultOption: true,
+                  description: global.MAKE_build_file_Desc
                 }
-                callback();
-              });
-            }).emit('make-build-event', args, corporalCallback);
+              ], args);
+              make_BUILD(options.file || global.configFilename);
+              callback();
+            }, args, corporalCallback);
           }
         };
       commands['t'] =
@@ -287,33 +300,26 @@ function cli_Enter(cmd) {
         {
           'description': global.MAKE_template_Desc,
           'invoke': function (session, args, corporalCallback) {
-            global.firmamentEmitter.once('docker-template-event', function (args, callback) {
-              wait.launchFiber(function () {
-                try {
-                  var options = cli_GetOptions([
-                    {
-                      name: 'full',
-                      type: Boolean,
-                      alias: 'f',
-                      description: global.MAKE_template_full_Desc
-                    },
-                    {
-                      name: 'file',
-                      type: String,
-                      defaultOption: true,
-                      description: global.MAKE_template_file_Desc
-                    }
-                  ], args);
-                  make_TEMPLATE(options.file || global.configFilename, options, function(err){
-                    util_LogError(err);
-                    callback();
-                  });
-                } catch (err) {
-                  util_LogError(err);
+            util_CallFunctionInFiber(function (callback) {
+              var options = cli_GetOptions([
+                {
+                  name: 'full',
+                  type: Boolean,
+                  alias: 'f',
+                  description: global.MAKE_template_full_Desc
+                },
+                {
+                  name: 'file',
+                  type: String,
+                  defaultOption: true,
+                  description: global.MAKE_template_file_Desc
                 }
-                //callback();
+              ], args);
+              make_TEMPLATE(options.file || global.configFilename, options, function (err) {
+                util_LogError(err);
+                callback();
               });
-            }).emit('docker-template-event', args, corporalCallback);
+            }, args, corporalCallback);
           }
         };
       break;
@@ -336,8 +342,8 @@ function docker_PS(options) {
 
 function docker_PrettyPrintDockerContainerList(containers, noprint) {
   console.log('');//Line feed
-  if(!containers || !containers.length){
-    if(!noprint){
+  if (!containers || !containers.length) {
+    if (!noprint) {
       console.log('No Running Containers\n');
     }
     return [];
@@ -354,11 +360,12 @@ function docker_PrettyPrintDockerContainerList(containers, noprint) {
       ID: ourIdString,
       Name: container.Names[0],
       Image: container.Image,
-      DockerId: container.Id.substring(1, 12)
+      DockerId: container.Id.substring(1, 12),
+      Status: container.Status
     };
     displayContainers.push(displayContainer);
   });
-  if(!noprint){
+  if (!noprint) {
     console.table(displayContainers);
   }
   return displayContainers;
@@ -407,16 +414,27 @@ function docker_StartContainer(containerName, containers) {
   }
 }
 
-function docker_GetContainerDockerIdByName(containerName, containers){
-  var wait = requireCache('wait.for');
+function docker_GetContainerDockerIdByName(containerName, containers) {
   containers = containers || docker_PS({all: true});
-  containers.forEach(function (container) {
-    container.Names.forEach(function (name) {
-      if (containerName === name) {
-        return container.Id;
+  //Brute force is fun!
+  for(var i = 0;i < containers.length;++i){
+    for(var j = 0;j < containers[i].Names.length;++j){
+      if (containerName === containers[i].Names[j]) {
+        return containers[i].Id;
       }
-    });
-  });
+    }
+  }
+}
+
+function docker_GetContainerNameByFermamentId(fermamentId, containers) {
+  containers = containers || docker_PS({all: true});
+  var displayContainers = docker_PrettyPrintDockerContainerList(containers, true);
+  for (var i = 0; i < displayContainers.length; ++i) {
+    if (displayContainers[i].ID == fermamentId) {
+      return displayContainers[i].Name;
+    }
+  }
+  return null;
 }
 
 //Make Command Handlers
@@ -789,8 +807,8 @@ function util_Fatal(ex) {
   util_Exit(ex);
 }
 
-function util_LogError(err){
-  if(err){
+function util_LogError(err) {
+  if (err) {
     console.log(err);
   }
 }
@@ -877,5 +895,20 @@ function util_SetupConsoleTable() {
 function util_WriteTemplateFile(templateFilename, full, callback) {
   var objectToWrite = full ? [getDockerContainerDefaultDescriptor()] : getDockerContainerConfigTemplate()
   util_WriteJsonObjectToFile(templateFilename, objectToWrite, callback);
+}
+
+function util_CallFunctionInFiber(fn, args, callback) {
+  var wait = requireCache('wait.for');
+  var eventName = ((new Date()).getTime()).toString();
+  console.log('eventName:' + eventName);
+  global.firmamentEmitter.once(eventName, function (args, callback) {
+    wait.launchFiber(function (args, callback) {
+      try {
+        fn(callback);
+      } catch (err) {
+        util_LogError(err);
+      }
+    }, args, callback);
+  }).emit(eventName, args, callback);
 }
 
