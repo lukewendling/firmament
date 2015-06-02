@@ -179,8 +179,8 @@ function commander_CreateCommanderCommandMap() {
           var displayContainers = docker_PrettyPrintDockerContainerList(containers, true);
           for(var i = 0;i < displayContainers.length;++i){
             if(displayContainers[i].ID == ID){
-              console.log("Starting conatiner: '" + displayContainers[i].Name + "'");
-              docker_StartContainer('/' + displayContainers[i].Name, containers);
+              console.log("Starting conatainer: '" + displayContainers[i].Name + "'");
+              console.log(docker_StartContainer(displayContainers[i].Name, containers));
             }
           }
         });
@@ -352,7 +352,7 @@ function docker_PrettyPrintDockerContainerList(containers, noprint) {
     var ourIdString = (++ourId).toString();
     var displayContainer = {
       ID: ourIdString,
-      Name: container.Names[0].substring(1),
+      Name: container.Names[0],
       Image: container.Image,
       DockerId: container.Id.substring(1, 12)
     };
@@ -398,16 +398,22 @@ function docker_CreateContainer(containerConfig) {
 
 function docker_StartContainer(containerName, containers) {
   var wait = requireCache('wait.for');
+  var containerDockerId = docker_GetContainerDockerIdByName(containerName, containers);
+  var path = '/containers/' + containerDockerId + '/start';
+  try {
+    return wait.for(docker_Post, path, {json: {Dns: null}});
+  } catch (ex) {
+    util_LogError(ex);
+  }
+}
+
+function docker_GetContainerDockerIdByName(containerName, containers){
+  var wait = requireCache('wait.for');
   containers = containers || docker_PS({all: true});
   containers.forEach(function (container) {
     container.Names.forEach(function (name) {
       if (containerName === name) {
-        var path = '/containers/' + container.Id + '/start';
-        try {
-          return wait.for(docker_Post, path, {json: {Dns: null}});
-        } catch (ex) {
-          util_LogError(ex);
-        }
+        return container.Id;
       }
     });
   });
@@ -425,8 +431,7 @@ function make_ProcessContainerConfigs(containerConfigs, processingCompleteCallba
 
   //Start the containers
   sortedContainerConfigs.forEach(function (containerConfig) {
-    var containerName = '/' + containerConfig.name;
-    docker_StartContainer(containerName, containers);
+    docker_StartContainer(containerConfig.name, containers);
   });
 
   //Deploy the Express applications
