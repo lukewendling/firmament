@@ -402,7 +402,7 @@ function cli_Enter(cmd) {
 function docker_StartOrStopContainersByFirmamentIds(IDs, start) {
   IDs.forEach(function (ID) {
     var containers = docker_PS({all: start});
-    var containerName = docker_GetContainerNameByFermamentId(ID, containers);
+    var containerName = docker_GetContainerNameByFirmamentId(ID, containers);
     if (containerName) {
       console.log((start ? 'Starting' : 'Stopping') + " container: '" + containerName + "'");
       docker_StartOrStopContainer(containerName, containers, start);
@@ -417,7 +417,6 @@ function docker_PS(options) {
 }
 
 function docker_PrettyPrintDockerContainerList(containers, noprint, all) {
-  var colors = requireCache('terminal-colors');
   console.log('');//Line feed
   if (!containers || !containers.length) {
     if (!noprint) {
@@ -529,7 +528,7 @@ function docker_GetContainerDockerIdByName(containerName, containers) {
   }
 }
 
-function docker_GetContainerNameByFermamentId(fermamentId, containers) {
+function docker_GetContainerNameByFirmamentId(fermamentId, containers) {
   var displayContainers = docker_PrettyPrintDockerContainerList(containers, true);
   for (var i = 0; i < displayContainers.length; ++i) {
     if (displayContainers[i].ID == fermamentId) {
@@ -543,7 +542,6 @@ function docker_GetContainerNameByFermamentId(fermamentId, containers) {
 function make_ProcessContainerConfigs(containerConfigs) {
   var sortedContainerConfigs = util_ContainerDependencySort(containerConfigs);
   var wait = requireCache('wait.for');
-  //var colors = requireCache('terminal-colors');
 
   wait.parallel.filter(sortedContainerConfigs, function (containerConfig) {
     console.log("Removing old Docker container: '" + containerConfig.name + "'");
@@ -561,7 +559,7 @@ function make_ProcessContainerConfigs(containerConfigs) {
 
   //Start the containers
   sortedContainerConfigs.forEach(function (containerConfig) {
-    docker_StartOrStopContainer('/' + containerConfig.name, docker_PS({all:true}), true);
+    docker_StartOrStopContainer('/' + containerConfig.name, docker_PS({all: true}), true);
     console.log("Starting Docker container: '" + containerConfig.name + "'");
   });
 
@@ -573,47 +571,26 @@ function make_ProcessContainerConfigs(containerConfigs) {
       return;
     }
 
-    wait.parallel.filter(containerConfig.ExpressApps, function (expressApp) {
+    containerConfig.ExpressApps.forEach(function (expressApp) {
       expressApp.GitCloneFolder = process.cwd() + '/' + expressApp.ServiceName + (new Date()).getTime();
       wait.for(make_GitClone, expressApp.GitUrl, expressApp.GitCloneFolder);
     });
 
-    wait.parallel.filter(containerConfig.ExpressApps, function (expressApp) {
+    containerConfig.ExpressApps.forEach(function (expressApp) {
       var argv = ['--scripts'];
       argv.unshift(process.argv[1]);
       argv.unshift(process.argv[0]);
       wait.for(make_StrongBuild, argv, expressApp.GitCloneFolder);
     });
 
-    return;
-    try {
-      var cc = containerConfig;
-      if (cc.ExpressApps) {
-        cc.ExpressApps.forEach(function (expressApp) {
-          var localFolder = expressApp.ServiceName + (new Date()).getTime();
-          wait.for(make_GitClone, expressApp.GitUrl, localFolder);
-          console.log('finished:' + localFolder);
-          /*          nodeGit.Clone(expressApp.GitUrl, localFolder)
-           .then(function (repo) {
-           process.chdir(localFolder);
-           console.log('Building');
-           var argv = [];
-           argv.unshift(process.argv[1]);
-           argv.unshift(process.argv[0]);
-           strongBuild.build(argv, function () {
-           var strongLoopServerUrl = expressApp.StrongLoopServerUrl || 'http://localhost:8701';
-           var url = requireCache('url');
-           var path = requireCache('path');
-           var serviceName = expressApp.ServiceName || path.basename(url.parse(expressApp.GitUrl).path);
-           var gitBranchName = expressApp.GitBranchName || 'deploy';
-           wait.launchFiber(make_StrongDeploy, process.cwd(), strongLoopServerUrl, serviceName, gitBranchName);
-           })
-           });*/
-        });
-      }
-    } catch (ex) {
-      util_LogError(ex);
-    }
+    containerConfig.ExpressApps.forEach(function (expressApp) {
+      var strongLoopServerUrl = expressApp.StrongLoopServerUrl || 'http://localhost:8701';
+      var url = requireCache('url');
+      var path = requireCache('path');
+      var serviceName = expressApp.ServiceName || path.basename(url.parse(expressApp.GitUrl).path);
+      var gitBranchName = expressApp.GitBranchName || 'deploy';
+      wait.for(make_StrongDeploy, expressApp.GitCloneFolder, strongLoopServerUrl, serviceName, gitBranchName);
+    });
   });
 }
 
@@ -675,8 +652,8 @@ function cli_CorporalLoop(cmd, commands) {
   var corporal = new Corporal({
     'commands': commands,
     'env': {
-      'ps1': global.commandAlias[cmd].yellow + '->> '.green,
-      'ps2': '>> '.green
+      'ps1': global.commandAlias[cmd].yellow + '->> ',
+      'ps2': '>> '
     }
   });
   corporal.on('load', corporal.loop);
@@ -983,7 +960,7 @@ function util_SetupConsoleTable() {
       } else {
         // assume plain object
         Object.keys(record).forEach(function (property) {
-          t.cell(property, record[property], null, 20);
+          t.cell(property, record[property]);
         });
       }
       t.newRow();
