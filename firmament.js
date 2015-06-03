@@ -417,6 +417,7 @@ function docker_PS(options) {
 }
 
 function docker_PrettyPrintDockerContainerList(containers, noprint, all) {
+  var colors = requireCache('terminal-colors');
   console.log('');//Line feed
   if (!containers || !containers.length) {
     if (!noprint) {
@@ -459,6 +460,12 @@ function docker_Post(path, options, callback) {
   request.post(path, options, callback);
 }
 
+function docker_Delete(path, options, callback) {
+  var docker = requireCache('docker-remote-api');
+  var request = docker({host: '/var/run/docker.sock'});
+  request.delete(path, options, callback);
+}
+
 function docker_CreateContainer(containerConfig) {
   var deepExtend = requireCache('deep-extend');
   var wait = requireCache('wait.for');
@@ -469,10 +476,31 @@ function docker_CreateContainer(containerConfig) {
   var queryString = {name: fullContainerConfigCopy.name};
 
   try {
-    return wait.for(docker_Post, '/containers/create', {json: fullContainerConfigCopy, qs: queryString});
+    wait.for(docker_Post, '/containers/create', {json: fullContainerConfigCopy, qs: queryString});
+    return {Message: "Container '" + fullContainerConfigCopy.name + "' created."};
   } catch (ex) {
     if (ex.status === 409) {
-      console.log("Container '" + fullContainerConfigCopy.name + "' already exists.");
+      return {Message: "Container '" + fullContainerConfigCopy.name + "' already exists."};
+    } else {
+      util_LogError(ex);
+    }
+  }
+}
+
+function docker_RemoveContainer(containerName, containers) {
+  var wait = requireCache('wait.for');
+
+  //v: true -> remove volumes associated with container
+  //force: true -> kill then remove the container
+  var queryString = {v: 0, force: 1};
+  var containerDockerId = docker_GetContainerDockerIdByName(containerName, containers);
+
+  try {
+    wait.for(docker_Delete, '/containers/' + containerDockerId, {qs: queryString});
+    return {Message: "Container '" + containerName + "' deleted."};
+  } catch (ex) {
+    if (ex.status === 404) {
+      return {Message: "Container '" + containerName + "' does not exist."};
     } else {
       util_LogError(ex);
     }
@@ -512,19 +540,32 @@ function docker_GetContainerNameByFermamentId(fermamentId, containers) {
 }
 
 //Make Command Handlers
-function make_ProcessContainerConfigs(containerConfigs, processingCompleteCallback) {
+function make_ProcessContainerConfigs(containerConfigs) {
   var sortedContainerConfigs = util_ContainerDependencySort(containerConfigs);
   var wait = requireCache('wait.for');
+  //var colors = requireCache('terminal-colors');
+
   wait.parallel.filter(sortedContainerConfigs, function (containerConfig) {
-    docker_CreateContainer(containerConfig);
+    console.log("Removing old Docker container: '" + containerConfig.name + "'");
+    var result = docker_RemoveContainer('/' + containerConfig.name, docker_PS({all: true}));
+    console.log(result.Message);
   });
 
-  var containers = docker_PS({all: true});
+  wait.parallel.filter(sortedContainerConfigs, function (containerConfig) {
+    console.log("Creating Docker container: '" + containerConfig.name + "'");
+    var result = docker_CreateContainer(containerConfig);
+    console.log(result.Message);
+  });
+
+  docker_PrettyPrintDockerContainerList(docker_PS({all: true}), false, true);
 
   //Start the containers
   sortedContainerConfigs.forEach(function (containerConfig) {
-    docker_StartOrStopContainer('/' + containerConfig.name, containers, true);
+    docker_StartOrStopContainer('/' + containerConfig.name, docker_PS({all:true}), true);
+    console.log("Starting Docker container: '" + containerConfig.name + "'");
   });
+
+  docker_PrettyPrintDockerContainerList(docker_PS({all: false}), false, false);
 
   //Deploy the Express applications
   sortedContainerConfigs.forEach(function (containerConfig) {
@@ -543,8 +584,6 @@ function make_ProcessContainerConfigs(containerConfigs, processingCompleteCallba
       argv.unshift(process.argv[0]);
       wait.for(make_StrongBuild, argv, expressApp.GitCloneFolder);
     });
-
-    console.log('StrongBuilt!');
 
     return;
     try {
@@ -590,7 +629,7 @@ function make_GitClone(gitUrl, localFolder, callback) {
 function make_StrongBuild(argv, gitCloneFolder, callback) {
   var strongBuild = requireCache('strong-build');
   process.chdir(gitCloneFolder);
-  strongBuild.build(argv, function(){
+  strongBuild.build(argv, function () {
     console.log("strong-build:  -> '" + gitCloneFolder + "'");
     callback(null, null);
   });
@@ -602,12 +641,15 @@ function make_StrongDeploy(cwd, strongLoopServerUrl, serviceName, gitBranchName)
   return wait.for(strongDeploy, cwd, strongLoopServerUrl, serviceName, gitBranchName);
 }
 
-function make_BUILD(filename, options) {
+function make_BUILD(filename, options, callback) {
   var jsonFile = requireCache('jsonfile');
   console.log("Constructing Docker containers described in: '" + filename + "'");
   var containerDescriptors = jsonFile.readFileSync(filename);
   console.log(containerDescriptors);
   make_ProcessContainerConfigs(containerDescriptors);
+  if (callback) {
+    callback();
+  }
 }
 
 function make_TEMPLATE(filename, options, callback) {
@@ -941,7 +983,7 @@ function util_SetupConsoleTable() {
       } else {
         // assume plain object
         Object.keys(record).forEach(function (property) {
-          t.cell(property, record[property]);
+          t.cell(property, record[property], null, 20);
         });
       }
       t.newRow();
