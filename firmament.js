@@ -22,7 +22,7 @@ function assignStaticGlobals() {
   global.firmamentEmitter = new (requireCache('events'))();
 
   global.slowToLoadModuleDependencies = {
-    "docker-remote-api": "^4.4.1",
+    "dockerode": "^2.1.4",
     "command-line-args": "^0.5.9",
     "nodegit": "^0.4.0",
     "commander": "^2.8.1",
@@ -121,7 +121,7 @@ function getDockerContainerDefaultDescriptor() {
     AttachStdin: false,
     AttachStdout: true,
     AttachStderr: true,
-    Tty: false,
+    Tty: true,
     OpenStdin: false,
     StdinOnce: false,
     Env: ['ENV0=how now brown cow', 'ENV1=320'],
@@ -192,6 +192,12 @@ function commander_CreateCommanderCommandMap() {
         .description(global.ROOT_make_Desc);
     },
     docker: function (commander) {
+      commander
+        .command('bash <ID>')
+        .description(global.DOCKER_stop_Desc)
+        .action(function (ID, otherIDs) {
+          docker_BashIntoContainerByFirmamentIds(ID);
+        });
       commander
         .command('stop <ID> [otherIDs...]')
         .description(global.DOCKER_stop_Desc)
@@ -399,21 +405,127 @@ function cli_Enter(cmd) {
 //^^^^--> Configure CLI & Commander (Add commands & so forth)
 
 //Docker Command Handlers
+function docker_BashIntoContainerByFirmamentIds(ID) {
+  var wait = requireCache('wait.for');
+  var containerId = docker_GetContainerDockerIdByFirmamentId(ID, docker_PS({all: false}));
+  var options = {
+    id: containerId,
+    AttachStdin: true,
+    AttachStdout: true,
+    AttachStderr: true,
+    Tty: true,
+    Cmd: [
+      '/bin/bash'
+    ]
+  };
+  try {
+    var result = wait.for(docker_ScopePuppy, 'exec', options);
+    return {Message: ''};
+  } catch (ex) {
+    return {Message: ex.message};
+  }
+}
+
 function docker_StartOrStopContainersByFirmamentIds(IDs, start) {
+  var containers = docker_PS({all: start});
+  var containerNames = [];
   IDs.forEach(function (ID) {
-    var containers = docker_PS({all: start});
     var containerName = docker_GetContainerNameByFirmamentId(ID, containers);
     if (containerName) {
-      console.log((start ? 'Starting' : 'Stopping') + " container: '" + containerName + "'");
-      docker_StartOrStopContainer(containerName, containers, start);
+      containerNames.push(containerName);
     }
+  });
+  containerNames.forEach(function (containerName) {
+    console.log((start ? 'Starting' : 'Stopping') + " container: '" + containerName + "'");
+    console.log(docker_StartOrStopContainer(containerName, containers, start).Message);
   });
 }
 
 function docker_PS(options) {
   var wait = requireCache('wait.for');
-  var queryString = {all: options.all};
-  return wait.for(docker_Get, '/containers/json', {qs: queryString, json: true});
+  return wait.for(docker_ScopePuppy, 'listContainers', {all: options.all});
+}
+
+function docker_ScopePuppy(fnName, options, callback) {
+  if (!global.docker) {
+    var Docker = requireCache('dockerode');
+    global.docker = new Docker({socketPath: '/var/run/docker.sock'});
+  }
+  if (fnName === 'createContainer') {
+    global.docker.createContainer(options, callback);
+  } else if (fnName === 'exec') {
+    var container = global.docker.getContainer(options.id);
+    if (!container) {
+      callback({Message: 'No such container'}, null);
+    }
+    var options2 = {
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true,
+      Tty: true,
+      Cmd: ['/bin/ls']
+    };
+    container.exec(options2, function(err, exec) {
+      if (err) return;
+
+      exec.start(function(err, stream) {
+        if (err) return;
+
+        var buffer = '';
+        stream.on('readable',function(){
+          var targetStream = stream.read(1);//0:stdin,1:stdout,2:stderr
+          if(!targetStream)return;
+          stream.read(3);//0:stdin,1:stdout,2:stderr
+          var xx = util_Int32FromBytes(targetStream);
+          var size = stream.read(4);
+          xx = util_Int32FromBytes(size);
+          var chunk;
+          while (null !== (chunk = stream.read())) {
+            buffer+= chunk.toString('utf8');
+          }
+        });
+        stream.on('end',function(){
+          console.log(buffer);
+          callback(null,null);
+        });
+      });
+    });
+/*    container.attach({stream: true, stdout: true, stdin:true, stderr: true}, function (err, stream) {
+      if (err) {
+        return;
+      }
+      stream.pipe(process.stdout);
+      stream.on('readable',function(){
+        while (null !== (chunk = stream.read())) {
+          var c = chunk;
+        }
+      });
+      stream.write('ls\n', 'utf8', function(err,data){
+        var d = data;
+      });
+      container.wait();
+    });*/
+  } else if (fnName === 'startOrStopContainer') {
+    var container = global.docker.getContainer(options.id);
+    if (!container) {
+      callback({Message: 'No such container'}, null);
+    }
+    if (options.start) {
+      container.start(callback);
+    } else {
+      container.stop(callback);
+    }
+  } else if (fnName === 'removeContainer') {
+    var container = global.docker.getContainer(options.id);
+    if (!container) {
+      callback({Message: 'No such container'}, null);
+    }
+    container.remove(options, callback);
+  } else if (fnName === 'listContainers') {
+    global.docker.listContainers(options, callback);
+  } else {
+    callback({Message: 'Unknown Docker command'}, null);
+  }
 }
 
 function docker_PrettyPrintDockerContainerList(containers, noprint, all) {
@@ -447,24 +559,6 @@ function docker_PrettyPrintDockerContainerList(containers, noprint, all) {
   return displayContainers;
 }
 
-function docker_Get(path, options, callback) {
-  var docker = requireCache('docker-remote-api');
-  var request = docker({host: '/var/run/docker.sock'});
-  request.get(path, options, callback);
-}
-
-function docker_Post(path, options, callback) {
-  var docker = requireCache('docker-remote-api');
-  var request = docker({host: '/var/run/docker.sock'});
-  request.post(path, options, callback);
-}
-
-function docker_Delete(path, options, callback) {
-  var docker = requireCache('docker-remote-api');
-  var request = docker({host: '/var/run/docker.sock'});
-  request.delete(path, options, callback);
-}
-
 function docker_CreateContainer(containerConfig) {
   var deepExtend = requireCache('deep-extend');
   var wait = requireCache('wait.for');
@@ -472,48 +566,36 @@ function docker_CreateContainer(containerConfig) {
   var fullContainerConfigCopy = {};
   deepExtend(fullContainerConfigCopy, getDockerContainerDefaultDescriptor());
   deepExtend(fullContainerConfigCopy, containerConfig);
-  var queryString = {name: fullContainerConfigCopy.name};
 
   try {
-    wait.for(docker_Post, '/containers/create', {json: fullContainerConfigCopy, qs: queryString});
-    return {Message: "Container '" + fullContainerConfigCopy.name + "' created."};
+    var result = wait.for(docker_ScopePuppy, 'createContainer', fullContainerConfigCopy);
+    return {Message: "Container '" + fullContainerConfigCopy.name + "' created (Id: " + result.id.substring(1, 12) + ")"};
   } catch (ex) {
-    if (ex.status === 409) {
-      return {Message: "Container '" + fullContainerConfigCopy.name + "' already exists."};
-    } else {
-      util_LogError(ex);
-    }
+    return {Message: ex.message};
   }
 }
 
 function docker_RemoveContainer(containerName, containers) {
   var wait = requireCache('wait.for');
 
-  //v: true -> remove volumes associated with container
-  //force: true -> kill then remove the container
-  var queryString = {v: 0, force: 1};
   var containerDockerId = docker_GetContainerDockerIdByName(containerName, containers);
 
   try {
-    wait.for(docker_Delete, '/containers/' + containerDockerId, {qs: queryString});
-    return {Message: "Container '" + containerName + "' deleted."};
+    var result = wait.for(docker_ScopePuppy, 'removeContainer', {id: containerDockerId, force: 1});
+    return {Message: "Container '" + containerName + "' removed (Id: " + result.id.substring(1, 12) + ")"};
   } catch (ex) {
-    if (ex.status === 404) {
-      return {Message: "Container '" + containerName + "' does not exist."};
-    } else {
-      util_LogError(ex);
-    }
+    return {Message: ex.message};
   }
 }
 
 function docker_StartOrStopContainer(containerName, containers, start) {
   var wait = requireCache('wait.for');
   var containerDockerId = docker_GetContainerDockerIdByName(containerName, containers);
-  var path = '/containers/' + containerDockerId + (start ? '/start' : '/stop');
   try {
-    return wait.for(docker_Post, path, {json: {Dns: null}});
+    wait.for(docker_ScopePuppy, 'startOrStopContainer', {id: containerDockerId, start: start});
+    return {Message: "Container: '" + containerName + "' " + (start ? 'start' : 'stopp') + 'ed.'};
   } catch (ex) {
-    util_LogError(ex);
+    return {Message: ex.message};
   }
 }
 
@@ -528,14 +610,18 @@ function docker_GetContainerDockerIdByName(containerName, containers) {
   }
 }
 
-function docker_GetContainerNameByFirmamentId(fermamentId, containers) {
+function docker_GetContainerDockerIdByFirmamentId(firmamentId, containers) {
+  var containerName = docker_GetContainerNameByFirmamentId(firmamentId, containers);
+  return docker_GetContainerDockerIdByName(containerName, containers);
+}
+
+function docker_GetContainerNameByFirmamentId(firmamentId, containers) {
   var displayContainers = docker_PrettyPrintDockerContainerList(containers, true);
   for (var i = 0; i < displayContainers.length; ++i) {
-    if (displayContainers[i].ID == fermamentId) {
+    if (displayContainers[i].ID == firmamentId) {
       return displayContainers[i].Name;
     }
   }
-  return null;
 }
 
 //Make Command Handlers
@@ -555,12 +641,12 @@ function make_ProcessContainerConfigs(containerConfigs) {
     console.log(result.Message);
   });
 
-  docker_PrettyPrintDockerContainerList(docker_PS({all: true}), false, true);
+  var containers = docker_PS({all: true});
+  docker_PrettyPrintDockerContainerList(containers, false, true);
 
   //Start the containers
   sortedContainerConfigs.forEach(function (containerConfig) {
-    docker_StartOrStopContainer('/' + containerConfig.name, docker_PS({all: true}), true);
-    console.log("Starting Docker container: '" + containerConfig.name + "'");
+    console.log(docker_StartOrStopContainer('/' + containerConfig.name, containers, true).Message);
   });
 
   docker_PrettyPrintDockerContainerList(docker_PS({all: false}), false, false);
@@ -1039,3 +1125,13 @@ function util_CallFunctionInFiber(fn, args, callback) {
   }).emit(eventName, args, callback);
 }
 
+function util_Int32FromBytes( x ){
+  var val = 0;
+  for (var i = 0; i < x.length; ++i) {
+    val += x[i];
+    if (i < x.length-1) {
+      val = val << 8;
+    }
+  }
+  return val;
+}
