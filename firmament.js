@@ -51,6 +51,8 @@ function assignStaticGlobals() {
   global.DOCKER_ps_Desc = 'Show running containers';
   global.DOCKER_start_Desc = 'Start docker container (use firmament ID)';
   global.DOCKER_stop_Desc = 'Stop docker container (use firmament ID)';
+  global.DOCKER_sh_Desc = 'Execute shell command in container (use firmament ID).';
+  global.DOCKER_sh_Desc += ' Put <cmd> in double quotes\nif it has switches.';
   global.DOCKER_start_ids_Desc = "Fermament IDs of containers to start";
   global.DOCKER_stop_ids_Desc = "Fermament IDs of containers to stop";
   global.DOCKER_ps_all_Desc = "Show all containers, even ones that aren't running";
@@ -193,10 +195,10 @@ function commander_CreateCommanderCommandMap() {
     },
     docker: function (commander) {
       commander
-        .command('bash <ID>')
-        .description(global.DOCKER_stop_Desc)
-        .action(function (ID, otherIDs) {
-          docker_BashIntoContainerByFirmamentIds(ID);
+        .command('sh <ID>')
+        .description(global.DOCKER_sh_Desc)
+        .action(function (ID) {
+          docker_ShellIntoContainerByFirmamentId(ID);
         });
       commander
         .command('stop <ID> [otherIDs...]')
@@ -405,24 +407,16 @@ function cli_Enter(cmd) {
 //^^^^--> Configure CLI & Commander (Add commands & so forth)
 
 //Docker Command Handlers
-function docker_BashIntoContainerByFirmamentIds(ID) {
+function docker_ShellIntoContainerByFirmamentId(ID) {
   var wait = requireCache('wait.for');
   var containerId = docker_GetContainerDockerIdByFirmamentId(ID, docker_PS({all: false}));
   var options = {
     id: containerId,
-    AttachStdin: true,
-    AttachStdout: true,
-    AttachStderr: true,
-    Tty: true,
-    Cmd: [
-      '/bin/bash'
-    ]
   };
   try {
-    var result = wait.for(docker_ScopePuppy, 'exec', options);
-    return {Message: ''};
+    return wait.for(docker_ScopePuppy, 'exec', options);
   } catch (ex) {
-    return {Message: ex.message};
+    return {Error: ex};
   }
 }
 
@@ -453,78 +447,86 @@ function docker_ScopePuppy(fnName, options, callback) {
   }
   if (fnName === 'createContainer') {
     global.docker.createContainer(options, callback);
-  } else if (fnName === 'exec') {
-    var container = global.docker.getContainer(options.id);
-    if (!container) {
-      callback({Message: 'No such container'}, null);
-    }
-    var options2 = {
-      AttachStdin: true,
-      AttachStdout: true,
-      AttachStderr: true,
-      Tty: true,
-      Cmd: ['/bin/ls']
-    };
-    container.exec(options2, function(err, exec) {
-      if (err) return;
-
-      exec.start(function(err, stream) {
-        if (err) return;
-
-        var buffer = '';
-        stream.on('readable',function(){
-          var targetStream = stream.read(1);//0:stdin,1:stdout,2:stderr
-          if(!targetStream)return;
-          stream.read(3);//0:stdin,1:stdout,2:stderr
-          var xx = util_Int32FromBytes(targetStream);
-          var size = stream.read(4);
-          xx = util_Int32FromBytes(size);
-          var chunk;
-          while (null !== (chunk = stream.read())) {
-            buffer+= chunk.toString('utf8');
-          }
-        });
-        stream.on('end',function(){
-          console.log(buffer);
-          callback(null,null);
-        });
-      });
-    });
-/*    container.attach({stream: true, stdout: true, stdin:true, stderr: true}, function (err, stream) {
-      if (err) {
-        return;
-      }
-      stream.pipe(process.stdout);
-      stream.on('readable',function(){
-        while (null !== (chunk = stream.read())) {
-          var c = chunk;
-        }
-      });
-      stream.write('ls\n', 'utf8', function(err,data){
-        var d = data;
-      });
-      container.wait();
-    });*/
-  } else if (fnName === 'startOrStopContainer') {
-    var container = global.docker.getContainer(options.id);
-    if (!container) {
-      callback({Message: 'No such container'}, null);
-    }
-    if (options.start) {
-      container.start(callback);
-    } else {
-      container.stop(callback);
-    }
-  } else if (fnName === 'removeContainer') {
-    var container = global.docker.getContainer(options.id);
-    if (!container) {
-      callback({Message: 'No such container'}, null);
-    }
-    container.remove(options, callback);
   } else if (fnName === 'listContainers') {
     global.docker.listContainers(options, callback);
   } else {
-    callback({Message: 'Unknown Docker command'}, null);
+    var container = global.docker.getContainer(options.id);
+    if (!container.id) {
+      callback({Message: 'No such container'}, null);
+      return;
+    }
+    if (fnName === 'exec') {
+      var child = requireCache('child_process').spawn('docker', ['exec', '-it', 'mongo', '/bin/bash'], {
+        stdio: 'inherit'
+      });
+
+      child.on('exit', function (err, code) {
+        callback(err, code);
+      });
+      //I'm keeping the following code around because it works and was a PITA to write. Then I found
+      //the easy way.
+      /*      var deepExtend = requireCache('deep-extend');
+       deepExtend(options, {
+       AttachStdin: false,
+       AttachStdout: true,
+       AttachStderr: true,
+       Tty: true,
+       });
+       container.exec(options, function (err, exec) {
+       if (err) {
+       callback(err, null);
+       return;
+       }
+       exec.start(function (err, stream) {
+       if (err) {
+       callback(err, null);
+       return;
+       }
+       var buffer = '';
+       var callbackCalled = false;
+       stream.on('readable', function () {
+       while (true) {
+       var streamTargetPipe = stream.read(1);//0:stdin,1:stdout,2:stderr
+       if (streamTargetPipe == null) {
+       return;
+       }
+       //These 3 bytes are junk (all == 0x00)
+       var pad = stream.read(3);
+       //Next 4 bytes are length of stream. We won't use this value since we
+       //just read until we get a <null> but it's junk we don't want in our output
+       var size = util_Int32FromBytes(stream.read(4));
+       var chunk = stream.read(size);
+       buffer += chunk.toString('utf8');
+       }
+       });
+       stream.on('end', function () {
+       if (!callbackCalled) {
+       callback(null, {Data: buffer});
+       callbackCalled = true;
+       }
+       });
+       stream.on('close', function () {
+       if (!callbackCalled) {
+       callback(null, null);
+       callbackCalled = true;
+       }
+       });
+       stream.on('error', function (err) {
+       if (!callbackCalled) {
+       callback(err, null);
+       callbackCalled = true;
+       }
+       });
+       });
+       });*/
+    } else if (fnName === 'startOrStopContainer') {
+      options.start ? container.start(callback) : container.stop(callback);
+    } else if (fnName === 'removeContainer') {
+      container.remove(options, callback);
+    }
+    else {
+      callback({Message: 'Unknown Docker command'}, null);
+    }
   }
 }
 
@@ -1024,7 +1026,9 @@ function util_Fatal(ex) {
 function util_LogError(err) {
   if (err) {
     console.log(err);
+    return true;
   }
+  return false;
 }
 
 function util_SetupConsoleTable() {
@@ -1125,13 +1129,42 @@ function util_CallFunctionInFiber(fn, args, callback) {
   }).emit(eventName, args, callback);
 }
 
-function util_Int32FromBytes( x ){
+function util_Int32FromBytes(x) {
   var val = 0;
   for (var i = 0; i < x.length; ++i) {
     val += x[i];
-    if (i < x.length-1) {
+    if (i < x.length - 1) {
       val = val << 8;
     }
   }
   return val;
+}
+
+/**Parameters:
+ data - string, every `bytes` bytes will form one number entry
+ array - the output array refference where numbers will be put
+ bytes - number of bytes per entry
+ big_endian - use big endian? (little endian otherwise)
+ */
+function fromBytes(data, array, bytes, big_endian) {
+  //Temporary variable for current number
+  var num;
+  //Loop through byte array
+  for (var i = 0, l = data.length; i < l; i += bytes) {
+    num = 0;
+    //Jump through the `bytes` and add them to number
+    if (big_endian) {
+      for (var b = 0; b < bytes; b++) {
+        num += (num << 8) + data[i + b];
+      }
+    }
+    else {
+      for (var b = bytes - 1; b >= 0; b--) {
+        num += (num << 8) + data[i + b];
+      }
+    }
+    //Add decomposed number to an array
+    array.push(num);
+  }
+  return array;
 }
