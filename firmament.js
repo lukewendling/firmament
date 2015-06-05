@@ -51,8 +51,9 @@ function assignStaticGlobals() {
   global.DOCKER_ps_Desc = 'Show running containers';
   global.DOCKER_start_Desc = 'Start docker container (use firmament ID)';
   global.DOCKER_stop_Desc = 'Stop docker container (use firmament ID)';
-  global.DOCKER_sh_Desc = 'Execute shell command in container (use firmament ID).';
-  global.DOCKER_sh_Desc += ' Put <cmd> in double quotes\nif it has switches.';
+  global.DOCKER_sh_Desc = 'Launch shell session in container (use firmament ID)';
+  global.DOCKER_sh_ids_Desc = "Fermament ID of container to shell into";
+  global.DOCKER_sh_Usage = "Docker 'sh' command usage:";
   global.DOCKER_start_ids_Desc = "Fermament IDs of containers to start";
   global.DOCKER_stop_ids_Desc = "Fermament IDs of containers to stop";
   global.DOCKER_ps_all_Desc = "Show all containers, even ones that aren't running";
@@ -70,11 +71,11 @@ function assignStaticGlobals() {
 
 function getDockerContainerConfigTemplate() {
   return [
-    {
+/*    {
       name: 'ubuntu',
       Image: 'ubuntu',
       Hostname: 'ubuntu'
-    },
+    },*/
     {
       name: 'mongo',
       Image: 'mongo',
@@ -262,6 +263,35 @@ function cli_Enter(cmd) {
   switch (cmd) {
     case('d'):
     case('docker'):
+      commands['sh'] =
+      {
+        'description': global.DOCKER_sh_Desc,
+        'invoke': function (session, args, corporalCallback) {
+          util_CallFunctionInFiber(function (callback) {
+            var optionsAndUsage = cli_GetOptionsAndUsage([
+              {
+                name: 'id',
+                type: Number,
+                defaultOption: true,
+                description: global.DOCKER_sh_ids_Desc
+              }
+            ], args, {header: global.DOCKER_sh_Usage});
+            if (optionsAndUsage.options.help) {
+              console.log(optionsAndUsage.usage);
+            } else {
+              if (optionsAndUsage.options.id) {
+                var result = docker_ShellIntoContainerByFirmamentId(optionsAndUsage.options.id);
+                if(result){
+                  util_LogError(result.Error);
+                }
+              } else {
+                console.log(optionsAndUsage.usage);
+              }
+            }
+            callback();
+          }, args, corporalCallback);
+        }
+      };
       commands['stop'] =
       {
         'description': global.DOCKER_stop_Desc,
@@ -409,9 +439,12 @@ function cli_Enter(cmd) {
 //Docker Command Handlers
 function docker_ShellIntoContainerByFirmamentId(ID) {
   var wait = requireCache('wait.for');
-  var containerId = docker_GetContainerDockerIdByFirmamentId(ID, docker_PS({all: false}));
+  var containerName = docker_GetContainerNameByFirmamentId(ID, docker_PS({all: false}));
+  if(!containerName){
+    return {Error: "No container with FirmamentId: '" + ID + "'"};
+  }
   var options = {
-    id: containerId,
+    containerName: containerName.substring(1)
   };
   try {
     return wait.for(docker_ScopePuppy, 'exec', options);
@@ -449,76 +482,18 @@ function docker_ScopePuppy(fnName, options, callback) {
     global.docker.createContainer(options, callback);
   } else if (fnName === 'listContainers') {
     global.docker.listContainers(options, callback);
+  } else if (fnName === 'exec') {
+    var child = requireCache('child_process').spawn('docker', ['exec', '-it', options.containerName, '/bin/bash'], {
+      stdio: 'inherit'
+    });
+    child.on('exit', function (err, code) {
+      callback(err, code);
+    });
   } else {
     var container = global.docker.getContainer(options.id);
     if (!container.id) {
       callback({Message: 'No such container'}, null);
       return;
-    }
-    if (fnName === 'exec') {
-      var child = requireCache('child_process').spawn('docker', ['exec', '-it', 'mongo', '/bin/bash'], {
-        stdio: 'inherit'
-      });
-
-      child.on('exit', function (err, code) {
-        callback(err, code);
-      });
-      //I'm keeping the following code around because it works and was a PITA to write. Then I found
-      //the easy way.
-      /*      var deepExtend = requireCache('deep-extend');
-       deepExtend(options, {
-       AttachStdin: false,
-       AttachStdout: true,
-       AttachStderr: true,
-       Tty: true,
-       });
-       container.exec(options, function (err, exec) {
-       if (err) {
-       callback(err, null);
-       return;
-       }
-       exec.start(function (err, stream) {
-       if (err) {
-       callback(err, null);
-       return;
-       }
-       var buffer = '';
-       var callbackCalled = false;
-       stream.on('readable', function () {
-       while (true) {
-       var streamTargetPipe = stream.read(1);//0:stdin,1:stdout,2:stderr
-       if (streamTargetPipe == null) {
-       return;
-       }
-       //These 3 bytes are junk (all == 0x00)
-       var pad = stream.read(3);
-       //Next 4 bytes are length of stream. We won't use this value since we
-       //just read until we get a <null> but it's junk we don't want in our output
-       var size = util_Int32FromBytes(stream.read(4));
-       var chunk = stream.read(size);
-       buffer += chunk.toString('utf8');
-       }
-       });
-       stream.on('end', function () {
-       if (!callbackCalled) {
-       callback(null, {Data: buffer});
-       callbackCalled = true;
-       }
-       });
-       stream.on('close', function () {
-       if (!callbackCalled) {
-       callback(null, null);
-       callbackCalled = true;
-       }
-       });
-       stream.on('error', function (err) {
-       if (!callbackCalled) {
-       callback(err, null);
-       callbackCalled = true;
-       }
-       });
-       });
-       });*/
     } else if (fnName === 'startOrStopContainer') {
       options.start ? container.start(callback) : container.stop(callback);
     } else if (fnName === 'removeContainer') {
@@ -1026,6 +1001,7 @@ function util_Fatal(ex) {
 function util_LogError(err) {
   if (err) {
     console.log(err);
+    console.log('');
     return true;
   }
   return false;
