@@ -58,6 +58,7 @@ function assignStaticGlobals() {
   global.DOCKER_sh_Usage = "Docker 'sh' command usage:";
   global.DOCKER_start_ids_Desc = "Fermament IDs of containers to start";
   global.DOCKER_stop_ids_Desc = "Fermament IDs of containers to stop";
+  global.DOCKER_rm_ids_Desc = "Fermament IDs of containers to remove";
   global.DOCKER_ps_all_Desc = "Show all containers, even ones that aren't running";
   global.DOCKER_ps_Usage = "Docker 'ps' command usage:";
   global.DOCKER_start_Usage = "Docker 'start' command usage:";
@@ -80,7 +81,7 @@ function getDockerContainerConfigTemplate() {
     },
     {
       name: 'loopback',
-      Image: 'strongloop/strong-pm',
+      Image: 'jreeme/node:12',
       Hostname: 'loopback',
       ExposedPorts: {
         '3001/tcp': {}
@@ -88,6 +89,7 @@ function getDockerContainerConfigTemplate() {
       HostConfig: {
         Links: ['mongo:mongo'],
         PortBindings: {
+          '3001/tcp': [{HostPort: '3001'}],
           '8701/tcp': [{HostPort: '8701'}]
         }
       },
@@ -102,23 +104,23 @@ function getDockerContainerConfigTemplate() {
     },
     {
       name: 'webapp',
-      Image: 'strongloop/strong-pm',
-      Hostname: 'loopback',
+      Image: 'jreeme/node:12',
+      Hostname: 'webapp',
       ExposedPorts: {
         '3001/tcp': {}
       },
       HostConfig: {
         Links: ['loopback:loopback'],
         PortBindings: {
-          '3001/tcp': [{HostPort: '3001'}],
-          '8701/tcp': [{HostPort: '8701'}]
+          '3001/tcp': [{HostPort: '3002'}],
+          '8701/tcp': [{HostPort: '8702'}]
         }
       },
       ExpressApps: [
         {
           GitUrl: 'https://github.com/jreeme/AminoWebApp',
           GitBranchName: 'deploy',
-          StrongLoopServerUrl: 'http://localhost:8701',
+          StrongLoopServerUrl: 'http://localhost:8702',
           ServiceName: 'AminoWebApp'
         }
       ]
@@ -365,6 +367,33 @@ function cli_Enter(cmd) {
           }, args, corporalCallback);
         }
       };
+      commands['rm'] =
+      {
+        'description': global.DOCKER_rm_Desc,
+        'invoke': function (session, args, corporalCallback) {
+          util_CallFunctionInFiber(function (callback) {
+            var optionsAndUsage = cli_GetOptionsAndUsage([
+              {
+                name: 'ids',
+                type: Array,
+                alias: 'i',
+                defaultOption: true,
+                description: global.DOCKER_rm_ids_Desc
+              }
+            ], args, {header: global.DOCKER_rm_Usage});
+            if (optionsAndUsage.options.help) {
+              console.log(optionsAndUsage.usage);
+            } else {
+              if (optionsAndUsage.options.ids) {
+                docker_RemoveContainersByFirmamentIds(optionsAndUsage.options.ids);
+              } else {
+                console.log(optionsAndUsage.usage);
+              }
+            }
+            callback();
+          }, args, corporalCallback);
+        }
+      };
       commands['ps'] =
       {
         'description': global.DOCKER_ps_Desc,
@@ -558,7 +587,7 @@ function docker_CreateContainer(containerConfig) {
 
 //Remove containers
 function docker_RemoveContainersByFirmamentIds(IDs) {
-  var containers = docker_PS({all: start});
+  var containers = docker_PS({all: true});
   var containerNames = docker_GetContainerNamesByFirmamentIds(IDs, containers);
   containerNames.forEach(function (containerName) {
     console.log("Removing container: '" + containerName + "'");
@@ -567,26 +596,28 @@ function docker_RemoveContainersByFirmamentIds(IDs) {
 }
 
 function docker_RemoveContainerByName(containerName, containers) {
-  var containerDockerId = docker_GetContainerDockerIdByName(containerName, containers);
-  var result = docker_RemoveContainerByDockerId(containerDockerId);
+  var dockerId = docker_GetContainerDockerIdByName(containerName, containers);
+  var result = docker_RemoveContainerByDockerId(dockerId);
   return {Message: "Container: '" + containerName + "' " + result.Message, Error: result.Error};
 }
 
 function docker_RemoveContainerByDockerId(dockerId) {
-  var idMessage = ': (Id: ' + dockerId.substring(1, 12) + ')';
+  var idMessage = ': (Id: <unknown>)';
   try {
+    idMessage = ': (Id: ' + dockerId.substring(1, 12) + ')';
     var wait = requireCache('wait.for');
     wait.for(docker_ScopePuppy, 'removeContainer', {id: dockerId, force: 1});
-    return {Message: 'Container Removed' + idMessage};
+    return {Message: 'Removed' + idMessage};
   } catch (ex) {
-    return {Message: 'Container Removal FAILED' + idMessage + ': ' + ex.message};
+    var message = 'Removal FAILED' + idMessage + ': ' + (dockerId ? ex.message : '');
+    return {Message: message, Error: ex};
   }
 }
 
 //Start/Stop containers
 function docker_StartOrStopContainersByFirmamentIds(IDs, start) {
   var containers = docker_PS({all: start});
-  var containerNames = docker_GetContainerNamesByFirmamentIds(IDs);
+  var containerNames = docker_GetContainerNamesByFirmamentIds(IDs, containers);
   containerNames.forEach(function (containerName) {
     console.log((start ? 'Start' : 'Stopp') + "ing container: '" + containerName + "'");
     console.log(docker_StartOrStopContainerByName(containerName, containers, start).Message);
@@ -595,19 +626,20 @@ function docker_StartOrStopContainersByFirmamentIds(IDs, start) {
 
 function docker_StartOrStopContainerByName(containerName, containers, start) {
   var dockerId = docker_GetContainerDockerIdByName(containerName, containers);
-  var result = docker_StartOrStopContainerByDockerId(dockerId);
+  var result = docker_StartOrStopContainerByDockerId(dockerId, start);
   return {Message: "Container: '" + containerName + "' " + result.Message, Error: result.Error};
 }
 
-function docker_StartOrStopContainerByDockerId(dockerId) {
-  var idMessage = ': (Id: ' + dockerId.substring(1, 12) + ')';
+function docker_StartOrStopContainerByDockerId(dockerId, start) {
+  var idMessage = ': (Id: <unknown>)';
   try {
+    idMessage = ': (Id: ' + dockerId.substring(1, 12) + ')';
     var wait = requireCache('wait.for');
     wait.for(docker_ScopePuppy, 'startOrStopContainer', {id: dockerId, start: start});
     var message = (start ? 'Start' : 'Stopp') + 'ed. ' + idMessage;
     return {Message: message};
   } catch (ex) {
-    var message = (start ? 'Start' : 'Stop') + ' FAILED: ' + idMessage + ': ' + ex.message;
+    var message = (start ? 'Start' : 'Stop') + ' FAILED: ' + idMessage + ': ' + (dockerId ? ex.message : '');
     return {Message: message, Error: ex};
   }
 }
@@ -622,6 +654,8 @@ function docker_GetContainerDockerIdByName(containerName, containers) {
       }
     }
   }
+  var message = 'Container does not exist.';
+  util_LogError({Message: message});
 }
 
 /*function docker_GetContainerDockerIdByFirmamentId(firmamentId, containers) {
@@ -674,14 +708,19 @@ function make_ProcessContainerConfigs(containerConfigs) {
   docker_PrettyPrintDockerContainerList(docker_PS({all: false}), false, false);
 
   //Deploy the Express applications
+  var cwd = process.cwd();
   sortedContainerConfigs.forEach(function (containerConfig) {
     if (!containerConfig.ExpressApps) {
       return;
     }
 
     containerConfig.ExpressApps.forEach(function (expressApp) {
-      expressApp.GitCloneFolder = process.cwd() + '/' + expressApp.ServiceName + (new Date()).getTime();
-      wait.for(make_GitClone, expressApp.GitUrl, expressApp.GitCloneFolder);
+      try {
+        expressApp.GitCloneFolder = cwd + '/' + expressApp.ServiceName + (new Date()).getTime();
+        wait.for(make_GitClone, expressApp.GitUrl, expressApp.GitCloneFolder);
+      } catch (ex) {
+        util_LogError(ex);
+      }
     });
 
     containerConfig.ExpressApps.forEach(function (expressApp) {
@@ -706,8 +745,12 @@ function make_GitClone(gitUrl, localFolder, callback) {
   var nodeGit = requireCache('nodegit');
   nodeGit.Clone(gitUrl, localFolder)
     .then(function (repo) {
-      console.log("git clone: '" + gitUrl + "' -> '" + localFolder + "'");
-      callback(null, null);
+      try {
+        console.log("git clone: '" + gitUrl + "' -> '" + localFolder + "'");
+        callback(null, null);
+      } catch (ex) {
+        util_LogError(ex);
+      }
     });
 }
 
