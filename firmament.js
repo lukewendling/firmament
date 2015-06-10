@@ -81,7 +81,7 @@ function getDockerContainerConfigTemplate() {
     },
     {
       name: 'loopback',
-      Image: 'jreeme/node:12',
+      Image: 'jreeme/node:10',
       Hostname: 'loopback',
       ExposedPorts: {
         '3001/tcp': {}
@@ -104,7 +104,7 @@ function getDockerContainerConfigTemplate() {
     },
     {
       name: 'webapp',
-      Image: 'jreeme/node:12',
+      Image: 'jreeme/node:10',
       Hostname: 'webapp',
       ExposedPorts: {
         '3001/tcp': {}
