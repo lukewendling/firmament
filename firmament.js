@@ -121,7 +121,14 @@ function getDockerContainerConfigTemplate() {
           GitUrl: 'https://github.com/jreeme/AminoWebApp',
           GitBranchName: 'deploy',
           StrongLoopServerUrl: 'http://localhost:8702',
-          ServiceName: 'AminoWebApp'
+          ServiceName: 'AminoWebApp',
+          Scripts: [
+            {
+              RelativeWorkingDir: '.',
+              Command: 'bower',
+              Args: ['install']
+            }
+          ]
         }
       ]
     }
@@ -718,13 +725,18 @@ function make_ProcessContainerConfigs(containerConfigs) {
       try {
         expressApp.GitCloneFolder = cwd + '/' + expressApp.ServiceName + (new Date()).getTime();
         wait.for(make_GitClone, expressApp.GitUrl, expressApp.GitCloneFolder);
+        wait.for(make_ExecuteExpressAppBuildScripts, expressApp);
       } catch (ex) {
         util_LogError(ex);
       }
     });
 
     containerConfig.ExpressApps.forEach(function (expressApp) {
-      var argv = ['--scripts'];
+      //At this time (11-JUN-2015) running scripts in npm package.json files blows slc deployment
+      //(the app uploads but is not startable) when running a 'prepublish:' bower script. Since
+      //this is a pretty popular thing to do we're opting to not allow scripts to be run for now.
+      //var argv = ['--scripts'];
+      var argv = [];
       argv.unshift(process.argv[1]);
       argv.unshift(process.argv[0]);
       wait.for(make_StrongBuild, argv, expressApp.GitCloneFolder);
@@ -739,6 +751,27 @@ function make_ProcessContainerConfigs(containerConfigs) {
       wait.for(make_StrongDeploy, expressApp.GitCloneFolder, strongLoopServerUrl, serviceName, gitBranchName);
     });
   });
+}
+
+function make_ExecuteExpressAppBuildScripts(expressApp, callback) {
+  if (!expressApp.Scripts) {
+    callback(null, null);
+    return;
+  }
+
+  expressApp.Scripts.forEach(function (script) {
+    try {
+      var spawnResult = requireCache('child_process').spawnSync(script.Command, script.Args, {
+        cwd: expressApp.GitCloneFolder + '/' + script.RelativeWorkingDir,
+        stdio: 'inherit'
+      });
+      util_LogError(spawnResult.error);
+    } catch (ex) {
+      util_LogError(ex);
+    }
+  });
+
+  callback(null, null);
 }
 
 function make_GitClone(gitUrl, localFolder, callback) {
