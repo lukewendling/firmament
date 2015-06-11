@@ -1,4 +1,4 @@
-#!/usr/local/node/bin/node
+#!/usr/local/bin/node
 
 start();
 
@@ -47,6 +47,7 @@ function assignStaticGlobals() {
   };
 
   global.ROOT_docker_Desc = 'Issue Docker commands to local or remote Docker server';
+  global.ROOT_init_Desc = 'Download all node modules needed for every operation. Otherwise they come down when needed.';
   global.ROOT_make_Desc = 'Issue make commands to build and deploy Docker containers';
   global.DOCKER_ps_Desc = 'Show running containers';
   global.DOCKER_rm_Desc = 'Kill and remove docker container';
@@ -205,6 +206,9 @@ function commander_CreateCommanderCommandMap() {
     root: function (commander) {
       commander
         .version(global.VERSION)
+      commander
+        .command('init')
+        .description(global.ROOT_init_Desc);
       commander
         .command('docker')
         .alias('d')
@@ -481,6 +485,14 @@ function cli_Enter(cmd) {
         }
       };
       break;
+    case('init'):
+      for (var module in global.slowToLoadModuleDependencies) {
+        global.moduleDependencies[module] = global.slowToLoadModuleDependencies[module];
+      }
+      require_ResolveModuleDependencies(function () {
+        console.log('Finished initializing. Enjoy firmament!');
+      });
+      return 0;
     default:
       //Indicate to caller this is an unknown command
       return -1;
@@ -692,13 +704,13 @@ function make_ProcessContainerConfigs(containerConfigs) {
   var sortedContainerConfigs = util_ContainerDependencySort(containerConfigs);
   var wait = requireCache('wait.for');
 
-  wait.parallel.filter(sortedContainerConfigs, function (containerConfig) {
+  sortedContainerConfigs.forEach(function (containerConfig) {
     console.log("Removing old Docker container: '" + containerConfig.name + "'");
     var result = docker_RemoveContainerByName('/' + containerConfig.name, docker_PS({all: true}));
     console.log(result.Message);
   });
 
-  wait.parallel.filter(sortedContainerConfigs, function (containerConfig) {
+  sortedContainerConfigs.forEach(function (containerConfig) {
     console.log("Creating Docker container: '" + containerConfig.name + "'");
     var result = docker_CreateContainer(containerConfig);
     console.log(result.Message);
