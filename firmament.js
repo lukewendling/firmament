@@ -76,9 +76,26 @@ function assignStaticGlobals() {
 function getDockerContainerConfigTemplate() {
   return [
     {
+      name: 'data-container',
+      Image: 'jreeme/data-container',
+      Hostname: 'data-container'
+    },
+    {
+      name: 'mysql',
+      Image: 'jreeme/mysql:5.5',
+      Env: ['MYSQL_ROOT_PASSWORD=root'],
+      Hostname: 'mysql',
+      HostConfig: {
+        VolumesFrom: ['data-container']
+      }
+    },
+    {
       name: 'mongo',
       Image: 'mongo',
-      Hostname: 'mongo'
+      Hostname: 'mongo',
+      HostConfig: {
+        VolumesFrom: ['data-container']
+      }
     },
     {
       name: 'loopback',
@@ -832,7 +849,9 @@ function make_TEMPLATE(filename, options, callback) {
     var yesno = requireCache('yesno');
     yesno.ask("Config file '" + filename + "' already exists. Overwrite? [Y/n]", true, function (ok) {
       if (ok) {
-        util_WriteTemplateFile(filename, options.full, callback);
+        util_CallFunctionInFiber(function(callback){
+          util_WriteTemplateFile(filename, options.full, callback);
+        },[],callback);
       } else {
         callback({Message: 'Canceled'});
       }
