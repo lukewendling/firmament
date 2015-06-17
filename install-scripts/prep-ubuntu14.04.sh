@@ -19,3 +19,6 @@ make install
 cd ..
 rm node-v0.12.4.tar.gz
 rm -rf node-v0.12.4
+cd ~
+git clone https://github.com/jreeme/firmament
+exit
