@@ -34,7 +34,6 @@ function assignStaticGlobals() {
     "strong-deploy": "^2.2.1",
     "strong-build": "^2.0.0",
     "easy-table": "^0.3.0",
-    "nimble": "^0.0.2",
     "util": "^0.10.3"
   };
 
@@ -43,6 +42,7 @@ function assignStaticGlobals() {
     "wait.for": "^0.6.6",
     "events": "",
     "child_process": "",
+    "tar-fs": "^1.5.1",
     "fibers": "^1.0.5"
   };
 
@@ -94,6 +94,7 @@ function getDockerContainerConfigTemplate() {
     {
       name: 'mongo',
       Image: 'mongo',
+      DockerFilePath: '~/firmament/docker/mongo/3.0',
       Hostname: 'mongo',
       HostConfig: {
         VolumesFrom: ['data-container']
@@ -102,6 +103,7 @@ function getDockerContainerConfigTemplate() {
     {
       name: 'loopback',
       Image: 'jreeme/node:10',
+      DockerFilePath: '~/firmament/docker/strong-pm',
       Hostname: 'loopback',
       ExposedPorts: {
         '3001/tcp': {}
@@ -125,6 +127,7 @@ function getDockerContainerConfigTemplate() {
     {
       name: 'webapp',
       Image: 'jreeme/node:10',
+      DockerFilePath: '~/firmament/docker/strong-pm',
       Hostname: 'webapp',
       ExposedPorts: {
         '3001/tcp': {}
@@ -552,6 +555,14 @@ function docker_ScopePuppy(fnName, options, callback) {
   }
   if (fnName === 'createContainer') {
     global.docker.createContainer(options, callback);
+  } else if (fnName === 'buildImage') {
+    var dockerFilePath = options.DockerFilePath;
+    var dockerImageName = options.Image;
+    var tar = requireCache('tar-fs');
+    var tarStream = tar.pack(dockerFilePath);
+    docker.buildImage(tarStream, {
+      t: dockerImageName
+    }, callback);
   } else if (fnName === 'listContainers') {
     global.docker.listContainers(options, callback);
   } else if (fnName === 'exec') {
@@ -620,9 +631,11 @@ function docker_CreateContainer(containerConfig) {
     var result = wait.for(docker_ScopePuppy, 'createContainer', fullContainerConfigCopy);
     return {Message: "Container '" + fullContainerConfigCopy.name + "' created (Id: " + result.id.substring(1, 12) + ")"};
   } catch (ex) {
-    if(ex.statusCode == 404){
+    if (ex.statusCode == 404) {
       //Image name was not recognized. Let's try to build the image from a Docker file path
-    }else{
+      var output = wait.for(docker_ScopePuppy, 'buildImage', fullContainerConfigCopy);
+      output.pipe(process.stdout);
+    } else {
       return {Message: ex.message};
     }
   }
@@ -856,9 +869,9 @@ function make_TEMPLATE(filename, options, callback) {
     var yesno = requireCache('yesno');
     yesno.ask("Config file '" + filename + "' already exists. Overwrite? [Y/n]", true, function (ok) {
       if (ok) {
-        util_CallFunctionInFiber(function(callback){
+        util_CallFunctionInFiber(function (callback) {
           util_WriteTemplateFile(filename, options.full, callback);
-        },[],callback);
+        }, [], callback);
       } else {
         callback({Message: 'Canceled'});
       }
