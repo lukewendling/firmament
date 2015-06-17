@@ -22,7 +22,6 @@ function assignStaticGlobals() {
   global.firmamentEmitter = new (requireCache('events'))();
 
   global.slowToLoadModuleDependencies = {
-    "dockerode": "^2.1.4",
     "command-line-args": "^0.5.9",
     "nodegit": "^0.4.0",
     "commander": "^2.8.1",
@@ -40,6 +39,7 @@ function assignStaticGlobals() {
   };
 
   global.moduleDependencies = {
+    "dockerode": "^2.1.4",
     "wait.for": "^0.6.6",
     "events": "",
     "child_process": "",
@@ -78,11 +78,13 @@ function getDockerContainerConfigTemplate() {
     {
       name: 'data-container',
       Image: 'jreeme/data-container',
+      DockerFilePath: '~/firmament/docker/data-container',
       Hostname: 'data-container'
     },
     {
       name: 'mysql',
       Image: 'jreeme/mysql:5.5',
+      DockerFilePath: '~/firmament/docker/mysql/5.5',
       Env: ['MYSQL_ROOT_PASSWORD=root'],
       Hostname: 'mysql',
       HostConfig: {
@@ -544,6 +546,7 @@ function docker_PS(options) {
 
 function docker_ScopePuppy(fnName, options, callback) {
   if (!global.docker) {
+    //Make sure dockerode is preinstalled. Otherwise you'll get the dreaded wait.for in a wait.for problem.
     var Docker = requireCache('dockerode');
     global.docker = new Docker({socketPath: '/var/run/docker.sock'});
   }
@@ -617,7 +620,11 @@ function docker_CreateContainer(containerConfig) {
     var result = wait.for(docker_ScopePuppy, 'createContainer', fullContainerConfigCopy);
     return {Message: "Container '" + fullContainerConfigCopy.name + "' created (Id: " + result.id.substring(1, 12) + ")"};
   } catch (ex) {
-    return {Message: ex.message};
+    if(ex.statusCode == 404){
+      //Image name was not recognized. Let's try to build the image from a Docker file path
+    }else{
+      return {Message: ex.message};
+    }
   }
 }
 
