@@ -5,6 +5,8 @@ echo "alias f='~/firmament/firmament.js'" >> ~/.bashrc
 echo 'set nu' >> ~/.vimrc
 apt-get update
 apt-get install -y git
+git config --global user.email "user@nowhere.com"
+git config --global user.name "user nowhere"
 apt-get install -y build-essential
 wget http://nodejs.org/dist/v0.12.4/node-v0.12.4.tar.gz
 tar xvf node-v0.12.4.tar.gz
@@ -13,5 +15,6 @@ cd node-v0.12.4
 ./configure
 make
 make install
+cd ..
 rm node-v0.12.4.tar.gz
 rm -rf node-v0.12.4
