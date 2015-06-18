@@ -17,6 +17,7 @@ function fiberWrapper() {
 
 function assignStaticGlobals() {
   global.VERSION = '0.0.3';
+  global.configFileFolder = '.';
   global.configFilename = 'firmament.json';
   global.require_Cache = {};
   global.firmamentEmitter = new (requireCache('events'))();
@@ -38,8 +39,11 @@ function assignStaticGlobals() {
   };
 
   global.moduleDependencies = {
+    "progress": "^1.1.8",
     "dockerode": "^2.1.4",
     "wait.for": "^0.6.6",
+    "fs": "",
+    "path": "",
     "events": "",
     "child_process": "",
     "tar-fs": "^1.5.1",
@@ -78,13 +82,13 @@ function getDockerContainerConfigTemplate() {
     {
       name: 'data-container',
       Image: 'jreeme/data-container',
-      DockerFilePath: '~/firmament/docker/data-container',
+      DockerFilePath: 'docker/data-container',
       Hostname: 'data-container'
     },
     {
       name: 'mysql',
       Image: 'jreeme/mysql:5.5',
-      DockerFilePath: '~/firmament/docker/mysql/5.5',
+      DockerFilePath: 'docker/mysql/5.5',
       Env: ['MYSQL_ROOT_PASSWORD=root'],
       Hostname: 'mysql',
       HostConfig: {
@@ -94,7 +98,7 @@ function getDockerContainerConfigTemplate() {
     {
       name: 'mongo',
       Image: 'mongo',
-      DockerFilePath: '~/firmament/docker/mongo/3.0',
+      DockerFilePath: 'docker/mongo/3.0',
       Hostname: 'mongo',
       HostConfig: {
         VolumesFrom: ['data-container']
@@ -103,7 +107,7 @@ function getDockerContainerConfigTemplate() {
     {
       name: 'loopback',
       Image: 'jreeme/node:10',
-      DockerFilePath: '~/firmament/docker/strong-pm',
+      DockerFilePath: 'docker/strong-pm',
       Hostname: 'loopback',
       ExposedPorts: {
         '3001/tcp': {}
@@ -127,7 +131,7 @@ function getDockerContainerConfigTemplate() {
     {
       name: 'webapp',
       Image: 'jreeme/node:10',
-      DockerFilePath: '~/firmament/docker/strong-pm',
+      DockerFilePath: 'docker/strong-pm',
       Hostname: 'webapp',
       ExposedPorts: {
         '3001/tcp': {}
@@ -547,6 +551,7 @@ function docker_PS(options) {
   return wait.for(docker_ScopePuppy, 'listContainers', {all: options.all});
 }
 
+//Any 'requireCache()' calls in docker_ScopePuppy must exist in global.moduleDependencies
 function docker_ScopePuppy(fnName, options, callback) {
   if (!global.docker) {
     //Make sure dockerode is preinstalled. Otherwise you'll get the dreaded wait.for in a wait.for problem.
@@ -556,13 +561,48 @@ function docker_ScopePuppy(fnName, options, callback) {
   if (fnName === 'createContainer') {
     global.docker.createContainer(options, callback);
   } else if (fnName === 'buildImage') {
-    var dockerFilePath = options.DockerFilePath;
+    var dockerFilePath = global.configFileFolder + '/' + options.DockerFilePath;
     var dockerImageName = options.Image;
     var tar = requireCache('tar-fs');
     var tarStream = tar.pack(dockerFilePath);
     docker.buildImage(tarStream, {
       t: dockerImageName
-    }, callback);
+    }, function (err, outputStream) {
+      var ProgressBar = requireCache('progress');
+      var progressBars = {};
+      outputStream.on('data', function (chunk) {
+        try {
+/*          console.log('-' + chunk);
+          return;*/
+          var data = JSON.parse(chunk);
+          if (data.status == 'Downloading' || data.status == 'Extracting') {
+            if (data.progressDetail && data.progressDetail.total) {
+              if (!progressBars[data.id + data.status]) {
+                progressBars[data.id] = new ProgressBar('Id: ' + data.id + ' [:bar] :percent', {
+                  complete: '=',
+                  incomplete: ' ',
+                  width: 40,
+                  total: data.progressDetail.total
+                });
+                progressBars[data.id].lastCurrent = 0;
+              }
+              progressBars[data.id].tick(data.progressDetail.current - progressBars[data.id].lastCurrent);
+              progressBars[data.id].lastCurrent = data.progressDetail.current;
+            }
+          }else if(data.stream){
+            console.log('>' + data.stream);
+          }
+        } catch (ex) {
+          util_LogError(ex);
+        }
+      });
+      outputStream.on('end', function () {
+        callback(null, {Message: "Image: '" + options.Image + "' built."});
+      });
+      outputStream.on('error', function () {
+        callback({Message: "Error creating image: '" + options.Image + "'"});
+      });
+    });
   } else if (fnName === 'listContainers') {
     global.docker.listContainers(options, callback);
   } else if (fnName === 'exec') {
@@ -633,8 +673,10 @@ function docker_CreateContainer(containerConfig) {
   } catch (ex) {
     if (ex.statusCode == 404) {
       //Image name was not recognized. Let's try to build the image from a Docker file path
-      var output = wait.for(docker_ScopePuppy, 'buildImage', fullContainerConfigCopy);
-      output.pipe(process.stdout);
+      console.log("Docker image: '" + fullContainerConfigCopy.Image + "' not found.");
+      console.log("Attempting to build from: '" + fullContainerConfigCopy.DockerFilePath + "' ...");
+      var result = wait.for(docker_ScopePuppy, 'buildImage', fullContainerConfigCopy);
+      return docker_CreateContainer(containerConfig);
     } else {
       return {Message: ex.message};
     }
@@ -852,6 +894,9 @@ function make_StrongDeploy(cwd, strongLoopServerUrl, serviceName, gitBranchName)
 }
 
 function make_BUILD(filename, options, callback) {
+  var fs = requireCache('fs');
+  var path = requireCache('path');
+  global.configFileFolder = path.dirname(fs.realpathSync(filename));
   var jsonFile = requireCache('jsonfile');
   console.log("Constructing Docker containers described in: '" + filename + "'");
   var containerDescriptors = jsonFile.readFileSync(filename);
