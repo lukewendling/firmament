@@ -671,6 +671,7 @@ function docker_CreateContainer(containerConfig) {
     var result = wait.for(docker_ScopePuppy, 'createContainer', fullContainerConfigCopy);
     return {Message: "Container '" + fullContainerConfigCopy.name + "' created (Id: " + result.id.substring(1, 12) + ")"};
   } catch (ex) {
+	console.log('*******' + ex);
     if (ex.statusCode == 404) {
       //Image name was not recognized. Let's try to build the image from a Docker file path
       console.log("Docker image: '" + fullContainerConfigCopy.Image + "' not found.");
