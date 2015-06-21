@@ -23,31 +23,31 @@ function assignStaticGlobals() {
   global.firmamentEmitter = new (requireCache('events'))();
 
   global.slowToLoadModuleDependencies = {
-    "command-line-args": "^0.5.9",
-    "nodegit": "^0.4.0",
-    "commander": "^2.8.1",
-    "jsonfile": "^2.0.0",
-    "terminal-colors": "^0.1.3",
-    "single-line-log": "^0.4.1",
-    "yesno": "^0.0.1",
-    "corporal": "^0.5.1",
-    "deep-extend": "^0.4.0",
-    "strong-deploy": "^2.2.1",
-    "strong-build": "^2.0.0",
-    "easy-table": "^0.3.0",
-    "util": "^0.10.3"
+    "command-line-args": "0.5.9",
+    "nodegit": "0.4.0",
+    "commander": "2.8.1",
+    "jsonfile": "2.0.0",
+    "terminal-colors": "0.1.3",
+    "single-line-log": "0.4.1",
+    "yesno": "0.0.1",
+    "corporal": "0.5.1",
+    "deep-extend": "0.4.0",
+    "strong-deploy": "2.2.1",
+    "strong-build": "2.0.0",
+    "easy-table": "0.3.0",
+    "util": "0.10.3"
   };
 
   global.moduleDependencies = {
-    "progress": "^1.1.8",
-    "dockerode": "^2.1.4",
-    "wait.for": "^0.6.6",
+    "progress": "1.1.8",
+    "dockerode": "2.1.4",
+    "wait.for": "0.6.6",
     "fs": "",
     "path": "",
     "events": "",
     "child_process": "",
-    "tar-fs": "^1.5.1",
-    "fibers": "^1.0.5"
+    "tar-fs": "1.5.1",
+    "fibers": "1.0.5"
   };
 
   global.ROOT_docker_Desc = 'Issue Docker commands to local or remote Docker server';
