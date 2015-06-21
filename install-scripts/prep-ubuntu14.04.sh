@@ -1,5 +1,5 @@
 #!/bin/bash
-update-alterantives --config editor
+update-alternatives --config editor
 echo 'set -o vi' >> ~/.bashrc
 echo "alias d='/usr/bin/docker'" >> ~/.bashrc
 echo "alias f='~/firmament/firmament.js'" >> ~/.bashrc
