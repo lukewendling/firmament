@@ -24,3 +24,5 @@ make install
 cd ..
 rm node-v0.12.4.tar.gz
 rm -rf node-v0.12.4
+npm install -g bower
+npm install -g strongloop
