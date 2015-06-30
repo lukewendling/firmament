@@ -81,7 +81,7 @@ function getDockerContainerConfigTemplate() {
   return [
     {
       name: 'data-container',
-      Image: 'jreeme/data-container',
+      Image: 'jreeme/data-container:0.9',
       DockerFilePath: 'docker/data-container',
       Hostname: 'data-container'
     },
@@ -106,7 +106,7 @@ function getDockerContainerConfigTemplate() {
     },
     {
       name: 'loopback',
-      Image: 'jreeme/node:10',
+      Image: 'jreeme/strongloop:10',
       DockerFilePath: 'docker/strong-pm',
       Hostname: 'loopback',
       ExposedPorts: {
@@ -130,7 +130,7 @@ function getDockerContainerConfigTemplate() {
     },
     {
       name: 'webapp',
-      Image: 'jreeme/node:10',
+      Image: 'jreeme/strongloop:10',
       DockerFilePath: 'docker/strong-pm',
       Hostname: 'webapp',
       ExposedPorts: {
@@ -158,6 +158,12 @@ function getDockerContainerConfigTemplate() {
           ]
         }
       ]
+    },
+    {
+      name: 'tangelo',
+      Image: 'jreeme/tangelo:0.9',
+      DockerFilePath: 'docker/tangelo',
+      Hostname: 'tangelo'
     }
   ];
 }
