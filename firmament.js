@@ -237,7 +237,7 @@ function commander_CreateCommanderCommandMap() {
   global.commander_CommandMap = {
     root: function (commander) {
       commander
-        .version(global.VERSION)
+        .version(global.VERSION);
       commander
         .command('init')
         .description(global.ROOT_init_Desc);
@@ -295,8 +295,10 @@ function commander_CreateCommanderCommandMap() {
         .command('build [filename]')
         .alias('b')
         .description(global.MAKE_build_Desc)
-        .action(function (filename) {
-          make_BUILD(filename || global.configFilename);
+        .action(function (filename, options) {
+          make_BUILD(filename || global.configFilename, options, function (err) {
+            util_Exit(err);
+          });
         });
       commander
         .command('template [filename]')
@@ -569,46 +571,114 @@ function docker_ScopePuppy(fnName, options, callback) {
   } else if (fnName === 'buildImage') {
     var dockerFilePath = global.configFileFolder + '/' + options.DockerFilePath;
     var dockerImageName = options.Image;
+    try {
+      //Check existence of Docker directory
+      var fs = requireCache('fs');
+      fs.statSync(dockerFilePath);
+    }catch(ex){
+      callback(ex, {Message: "DockerFilePath '" + dockerFilePath + "' does not exist."});
+      return;
+    }
     var tar = requireCache('tar-fs');
     var tarStream = tar.pack(dockerFilePath);
-    docker.buildImage(tarStream, {
-      t: dockerImageName
-    }, function (err, outputStream) {
-      var ProgressBar = requireCache('progress');
-      var progressBars = {};
-      outputStream.on('data', function (chunk) {
-        try {
-/*          console.log('-' + chunk);
-          return;*/
-          var data = JSON.parse(chunk);
-          if (data.status == 'Downloading' || data.status == 'Extracting') {
-            if (data.progressDetail && data.progressDetail.total) {
-              if (!progressBars[data.id + data.status]) {
-                progressBars[data.id] = new ProgressBar('Id: ' + data.id + ' [:bar] :percent', {
-                  complete: '=',
-                  incomplete: ' ',
-                  width: 40,
-                  total: data.progressDetail.total
-                });
-                progressBars[data.id].lastCurrent = 0;
-              }
-              progressBars[data.id].tick(data.progressDetail.current - progressBars[data.id].lastCurrent);
-              progressBars[data.id].lastCurrent = data.progressDetail.current;
+    try {
+      docker.buildImage(tarStream, {
+        t: dockerImageName
+      }, function (err, outputStream) {
+        var ProgressBar = requireCache('progress');
+        var progressBars = {};
+        outputStream.on('data', function (chunk) {
+          try {
+            /*          console.log('-' + chunk);
+             return;*/
+            var data = JSON.parse(chunk);
+            if (data.error) {
+              options.data = data;
+              return;
             }
-          }else if(data.stream){
-            console.log('>' + data.stream);
+            if (data.status == 'Downloading' || data.status == 'Extracting') {
+              if (data.progressDetail && data.progressDetail.total) {
+                if (!progressBars[data.id + data.status]) {
+                  progressBars[data.id] = new ProgressBar('Id: ' + data.id + ' [:bar] :percent', {
+                    complete: '=',
+                    incomplete: ' ',
+                    width: 40,
+                    total: data.progressDetail.total
+                  });
+                  progressBars[data.id].lastCurrent = 0;
+                }
+                progressBars[data.id].tick(data.progressDetail.current - progressBars[data.id].lastCurrent);
+                progressBars[data.id].lastCurrent = data.progressDetail.current;
+              }
+            } else if (data.stream) {
+              console.log('>' + data.stream);
+            }
+          } catch (ex) {
+            util_LogError(ex);
           }
-        } catch (ex) {
-          util_LogError(ex);
-        }
+        });
+        outputStream.on('end', function () {
+          if (options.data && options.data.error) {
+            callback(options.data, {Message: "Error building: '" + options.Image + "'."});
+          } else {
+            callback(null, {Message: "Image: '" + options.Image + "' built."});
+          }
+        });
+        outputStream.on('error', function () {
+          var msg = "Error creating image: '" + options.Image + "'";
+          callback({error: msg}, {Message: msg});
+        });
       });
-      outputStream.on('end', function () {
-        callback(null, {Message: "Image: '" + options.Image + "' built."});
+    } catch (ex) {
+      callback({Message: 'Unknown Docker command'}, null);
+    }
+  } else if (fnName === 'pullImage') {
+    docker.pull(options.Image,
+      function (err, outputStream) {
+        var ProgressBar = requireCache('progress');
+        var progressBars = {};
+        outputStream.on('data', function (chunk) {
+          try {
+            /*            console.log('-' + chunk);
+             return;*/
+            var data = JSON.parse(chunk);
+            if (data.error) {
+              options.data = data;
+              return;
+            }
+            if (data.status == 'Downloading' || data.status == 'Extracting') {
+              if (data.progressDetail && data.progressDetail.total) {
+                if (!progressBars[data.id + data.status]) {
+                  progressBars[data.id] = new ProgressBar('Id: ' + data.id + ' [:bar] :percent', {
+                    complete: '=',
+                    incomplete: ' ',
+                    width: 40,
+                    total: data.progressDetail.total
+                  });
+                  progressBars[data.id].lastCurrent = 0;
+                }
+                progressBars[data.id].tick(data.progressDetail.current - progressBars[data.id].lastCurrent);
+                progressBars[data.id].lastCurrent = data.progressDetail.current;
+              }
+            } else if (data.stream) {
+              console.log('>' + data.stream);
+            }
+          } catch (ex) {
+            util_LogError(ex);
+          }
+        });
+        outputStream.on('end', function () {
+          if (options.data && options.data.error) {
+            callback(options.data, {Message: "Error pulling: '" + options.Image + "'."});
+          } else {
+            callback(null, {Message: "Image: '" + options.Image + "' pulled."});
+          }
+        });
+        outputStream.on('error', function () {
+          var msg = "Unable to pull image: '" + options.Image + "'";
+          callback({error: msg}, {Message: msg});
+        });
       });
-      outputStream.on('error', function () {
-        callback({Message: "Error creating image: '" + options.Image + "'"});
-      });
-    });
   } else if (fnName === 'listContainers') {
     global.docker.listContainers(options, callback);
   } else if (fnName === 'exec') {
@@ -622,7 +692,7 @@ function docker_ScopePuppy(fnName, options, callback) {
     var container = global.docker.getContainer(options.id);
     if (!container.id) {
       callback({Message: 'No such container'}, null);
-      return;
+
     } else if (fnName === 'startOrStopContainer') {
       options.start ? container.start(callback) : container.stop(callback);
     } else if (fnName === 'removeContainer') {
@@ -677,13 +747,32 @@ function docker_CreateContainer(containerConfig) {
     var result = wait.for(docker_ScopePuppy, 'createContainer', fullContainerConfigCopy);
     return {Message: "Container '" + fullContainerConfigCopy.name + "' created (Id: " + result.id.substring(1, 12) + ")"};
   } catch (ex) {
-	console.log('*******' + ex);
+    console.log('*******' + ex);
     if (ex.statusCode == 404) {
       //Image name was not recognized. Let's try to build the image from a Docker file path
       console.log("Docker image: '" + fullContainerConfigCopy.Image + "' not found.");
-      console.log("Attempting to build from: '" + fullContainerConfigCopy.DockerFilePath + "' ...");
-      var result = wait.for(docker_ScopePuppy, 'buildImage', fullContainerConfigCopy);
-      return docker_CreateContainer(containerConfig);
+      console.log("Attempting to pull from: 'hub.docker.com' ...");
+      try {
+        var result = wait.for(docker_ScopePuppy, 'pullImage', fullContainerConfigCopy);
+        console.log("Container '" + fullContainerConfigCopy.name + "' pulled (Id: " + result.id.substring(1, 12) + ")");
+        return docker_CreateContainer(containerConfig);
+      } catch (ex) {
+        console.log("Docker image: '" + fullContainerConfigCopy.Image + "' not found on 'hub.docker.com'");
+        if (!fullContainerConfigCopy.DockerFilePath) {
+          return {Message: "Container '" + fullContainerConfigCopy.name + "' has no DockerFilePath specified, cannot attempt build"};
+        }
+        console.log("Attempting to build from: '" + fullContainerConfigCopy.DockerFilePath + "' ...");
+        try {
+          var result = wait.for(docker_ScopePuppy, 'buildImage', fullContainerConfigCopy);
+          console.log("Container '" + fullContainerConfigCopy.name + "' pulled (Id: " + result.id.substring(1, 12) + ")");
+          return docker_CreateContainer(containerConfig);
+        } catch (ex) {
+          if(ex.message){
+            return {Message: ex.message};
+          }
+          return {Message: "Unable to build from Docker file at '" + fullContainerConfigCopy.DockerFilePath + "'"};
+        }
+      }
     } else {
       return {Message: ex.message};
     }
@@ -1048,7 +1137,7 @@ function requireCache(moduleName) {
     }
   }
 
-  console.log("Looking for '" + moduleName + "' in dependency list ...")
+  console.log("Looking for '" + moduleName + "' in dependency list ...");
   var version = global.slowToLoadModuleDependencies[moduleName];
   var modulesToDownload = [version && version.length ? moduleName + '@' + version : moduleName];
 
@@ -1311,7 +1400,7 @@ function util_SetupConsoleTable() {
 }
 
 function util_WriteTemplateFile(templateFilename, full, callback) {
-  var objectToWrite = full ? [getDockerContainerDefaultDescriptor()] : getDockerContainerConfigTemplate()
+  var objectToWrite = full ? [getDockerContainerDefaultDescriptor()] : getDockerContainerConfigTemplate();
   util_WriteJsonObjectToFile(templateFilename, objectToWrite, callback);
 }
 
