@@ -16,18 +16,26 @@ RUN apt-get install -y wget
 
 # install the MITIE library
 RUN apt-get install -y libjpeg-dev
+RUN apt-get install -y build-essential
 RUN apt-get install -y libopenblas-dev liblapack-dev
 RUN mkdir /usr/lib/mitie \
     && cd /usr/lib/mitie \
-    && git clone https://github.com/mitll/MITIE.git \
-    && cd MITIE \
-    && make MITIE-models \
-    && cd tools/ner_stream \
+    && git clone https://github.com/mitll/MITIE.git
+
+RUN cd /usr/lib/mitie/MITIE \
+    && make MITIE-models
+
+RUN ln -s /usr/lib/x86_64-linux-gnu/libgfortran.so.3 /usr/lib/x86_64-linux-gnu/libgfortran.so
+
+RUN cd /usr/lib/mitie/MITIE/tools/ner_stream \
     && mkdir build \
     && cd build \
-    && cmake .. \
-    && cmake --build . --config Release \
-    && cd ../../../mitielib \
+    && cmake ..
+
+RUN cd /usr/lib/mitie/MITIE/tools/ner_stream/build \
+    && cmake --build . --config Release
+
+RUN cd /usr/lib/mitie/MITIE/mitielib \
     && make
 
 ENV MITIE_HOME /usr/lib/mitie/MITIE
@@ -45,14 +53,7 @@ RUN wget http://dev.mysql.com/get/Downloads/Connector-Python/mysql-connector-pyt
     && cd mysql-connector-python-1.2.3/ \
     && python setup.py install
 
-# install igraph
-
-RUN add-apt-repository -y ppa:igraph/ppa \
-    && apt-get update \
-    && apt-get install -y python-igraph
-
 # install pyodbc
-
 RUN apt-get -y install aptitude \
     && aptitude -y install g++ \
     && apt-get -y install unixodbc-dev \
@@ -64,8 +65,10 @@ RUN apt-get install -y python-bs4
 # install tangelo
 RUN pip install tangelo
 
-# copy over the web apps and conf
+# Install elastic search for the domain dive feature
+RUN pip install elasticsearch
 
+# copy over the web apps and conf
 COPY datawake /usr/local/share/tangelo/web/datawake
 COPY forensic /usr/local/share/tangelo/web/forensic
 ENV PYTHONPATH /usr/local/share/tangelo/web:$PYTHONPATH
@@ -78,5 +81,10 @@ COPY tangelo.conf /etc/tangelo.conf
 EXPOSE 80
 CMD ["tangelo","-c","/etc/tangelo.conf"]
 
-# Install elastic search for the domain dive feature
-RUN pip install elasticsearch
+# install igraph
+#JReeme sez: "Don't add this aptitude repo. It doesn't exist anymore and will break the
+#container build. Just "apt-get install python-igraph" and everything will be fine.(01-JUL-2015)
+#RUN add-apt-repository -y ppa:igraph/ppa
+#RUN apt-get update
+RUN apt-get install -y python-igraph
+
