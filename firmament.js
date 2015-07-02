@@ -81,13 +81,13 @@ function getDockerContainerConfigTemplate() {
   return [
     {
       name: 'data-container',
-      Image: 'jreeme/data-container:0.9',
+      Image: 'jreeme/data-container:1.0',
       DockerFilePath: 'docker/data-container',
       Hostname: 'data-container'
     },
     {
       name: 'mysql',
-      Image: 'jreeme/mysql:5.5',
+      Image: 'jreeme/mysql:5.5.1',
       DockerFilePath: 'docker/mysql/5.5',
       Env: ['MYSQL_ROOT_PASSWORD=root'],
       Hostname: 'mysql',
@@ -170,7 +170,7 @@ function getDockerContainerConfigTemplate() {
         '8080/tcp': {}
       },
       HostConfig: {
-        Links: ['mysql:mysql'],
+        Links: ['mysql:mysql','loopback:loopback'],
         PortBindings: {
           '8080/tcp': [{HostPort: '8080'}]
         }
@@ -735,7 +735,7 @@ function docker_PrettyPrintDockerContainerList(containers, noprint, all) {
       ID: ourIdString,
       Name: container.Names[0],
       Image: container.Image,
-      DockerId: container.Id.substring(1, 12),
+      DockerId: container.Id.substring(0, 11),
       Status: container.Status
     };
     displayContainers.push(displayContainer);
