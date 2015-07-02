@@ -126,7 +126,7 @@ function getDockerContainerConfigTemplate() {
           GitUrl: 'https://github.com/Sotera/DatawakeManager-Loopback',
           GitBranchName: 'deploy',
           StrongLoopServerUrl: 'http://localhost:8701',
-          ServiceName: 'AminoLoopBack'
+          ServiceName: 'DatawakeManager-Loopback'
         }
       ]
     },
@@ -150,7 +150,7 @@ function getDockerContainerConfigTemplate() {
           GitUrl: 'https://github.com/Sotera/DatawakeManager-WebApp',
           GitBranchName: 'deploy',
           StrongLoopServerUrl: 'http://localhost:8702',
-          ServiceName: 'AminoWebApp',
+          ServiceName: 'DatawakeManager-WebApp',
           Scripts: [
             {
               RelativeWorkingDir: '.',
