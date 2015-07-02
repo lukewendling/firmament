@@ -52,6 +52,7 @@ RUN mkdir -p /etc/mysql/conf.d \
 VOLUME /var/lib/mysql
 
 COPY docker-entrypoint.sh /entrypoint.sh
+COPY build_populated_db.sql /build_populated_db.sql
 ENTRYPOINT ["/entrypoint.sh"]
 
 EXPOSE 3306

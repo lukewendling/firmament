@@ -92,6 +92,7 @@ function getDockerContainerConfigTemplate() {
       Env: ['MYSQL_ROOT_PASSWORD=root'],
       Hostname: 'mysql',
       HostConfig: {
+        Links: ['data-container:data-container'],
         VolumesFrom: ['data-container']
       }
     },
@@ -101,6 +102,7 @@ function getDockerContainerConfigTemplate() {
       DockerFilePath: 'docker/mongo/3.0',
       Hostname: 'mongo',
       HostConfig: {
+        Links: ['data-container:data-container'],
         VolumesFrom: ['data-container']
       }
     },
@@ -113,7 +115,7 @@ function getDockerContainerConfigTemplate() {
         '3001/tcp': {}
       },
       HostConfig: {
-        Links: ['mongo:mongo'],
+        Links: ['mongo:mongo','mysql:mysql'],
         PortBindings: {
           '3001/tcp': [{HostPort: '3001'}],
           '8701/tcp': [{HostPort: '8701'}]
@@ -121,7 +123,7 @@ function getDockerContainerConfigTemplate() {
       },
       ExpressApps: [
         {
-          GitUrl: 'https://github.com/jreeme/AminoLoopBack',
+          GitUrl: 'https://github.com/Sotera/DatawakeManager-Loopback',
           GitBranchName: 'deploy',
           StrongLoopServerUrl: 'http://localhost:8701',
           ServiceName: 'AminoLoopBack'
@@ -145,7 +147,7 @@ function getDockerContainerConfigTemplate() {
       },
       ExpressApps: [
         {
-          GitUrl: 'https://github.com/jreeme/AminoWebApp',
+          GitUrl: 'https://github.com/Sotera/DatawakeManager-WebApp',
           GitBranchName: 'deploy',
           StrongLoopServerUrl: 'http://localhost:8702',
           ServiceName: 'AminoWebApp',
@@ -163,7 +165,16 @@ function getDockerContainerConfigTemplate() {
       name: 'tangelo',
       Image: 'jreeme/tangelo:0.9',
       DockerFilePath: 'docker/tangelo',
-      Hostname: 'tangelo'
+      Hostname: 'tangelo',
+      ExposedPorts: {
+        '8080/tcp': {}
+      },
+      HostConfig: {
+        Links: ['mysql:mysql'],
+        PortBindings: {
+          '8080/tcp': [{HostPort: '8080'}]
+        }
+      }
     }
   ];
 }
@@ -754,7 +765,9 @@ function docker_CreateContainer(containerConfig) {
       console.log("Attempting to pull from: 'hub.docker.com' ...");
       try {
         var result = wait.for(docker_ScopePuppy, 'pullImage', fullContainerConfigCopy);
-        console.log("Container '" + fullContainerConfigCopy.name + "' pulled (Id: " + result.id.substring(1, 12) + ")");
+        if(result && result.Message){
+          console.log(result.Message);
+        }
         return docker_CreateContainer(containerConfig);
       } catch (ex) {
         console.log("Docker image: '" + fullContainerConfigCopy.Image + "' not found on 'hub.docker.com'");
@@ -764,7 +777,7 @@ function docker_CreateContainer(containerConfig) {
         console.log("Attempting to build from: '" + fullContainerConfigCopy.DockerFilePath + "' ...");
         try {
           var result = wait.for(docker_ScopePuppy, 'buildImage', fullContainerConfigCopy);
-          console.log("Container '" + fullContainerConfigCopy.name + "' pulled (Id: " + result.id.substring(1, 12) + ")");
+          console.log("Container '" + fullContainerConfigCopy.name + "' built.");
           return docker_CreateContainer(containerConfig);
         } catch (ex) {
           if(ex.message){
