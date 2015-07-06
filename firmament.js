@@ -98,8 +98,8 @@ function getDockerContainerConfigTemplate() {
     },
     {
       name: 'mongo',
-      Image: 'mongo',
-      DockerFilePath: 'docker/mongo/3.0',
+      Image: 'jreeme/mongo:2.6',
+      DockerFilePath: 'docker/mongo/2.6',
       Hostname: 'mongo',
       HostConfig: {
         //Links: ['data-container:data-container'],
