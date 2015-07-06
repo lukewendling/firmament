@@ -83,6 +83,9 @@ function getDockerContainerConfigTemplate() {
       name: 'data-container',
       Image: 'jreeme/data-container:1.0',
       DockerFilePath: 'docker/data-container',
+      Volumes: {
+        '/var/log/sotera': {}
+      },
       Hostname: 'data-container'
     },
     {
@@ -92,7 +95,7 @@ function getDockerContainerConfigTemplate() {
       Env: ['MYSQL_ROOT_PASSWORD=root'],
       Hostname: 'mysql',
       HostConfig: {
-        Links: ['data-container:data-container'],
+        //Links: ['data-container:data-container'],
         VolumesFrom: ['data-container']
       }
     },
@@ -102,7 +105,7 @@ function getDockerContainerConfigTemplate() {
       DockerFilePath: 'docker/mongo/3.0',
       Hostname: 'mongo',
       HostConfig: {
-        Links: ['data-container:data-container'],
+        //Links: ['data-container:data-container'],
         VolumesFrom: ['data-container']
       }
     },
@@ -151,6 +154,9 @@ function getDockerContainerConfigTemplate() {
           GitBranchName: 'deploy',
           StrongLoopServerUrl: 'http://localhost:8702',
           ServiceName: 'DatawakeManager-WebApp',
+          HostConfig: {
+            VolumesFrom: ['data-container']
+          },
           Scripts: [
             {
               RelativeWorkingDir: '.',
