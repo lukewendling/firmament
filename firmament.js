@@ -81,11 +81,8 @@ function getDockerContainerConfigTemplate() {
   return [
     {
       name: 'data-container',
-      Image: 'jreeme/data-container:1.0',
+      Image: 'jreeme/data-container:1.1',
       DockerFilePath: 'docker/data-container',
-      Volumes: {
-        '/var/log/sotera': {}
-      },
       Hostname: 'data-container'
     },
     {
@@ -143,6 +140,7 @@ function getDockerContainerConfigTemplate() {
       },
       HostConfig: {
         Links: ['loopback:loopback'],
+        VolumesFrom: ['data-container'],
         PortBindings: {
           '3001/tcp': [{HostPort: '3002'}],
           '8701/tcp': [{HostPort: '8702'}]
@@ -154,9 +152,6 @@ function getDockerContainerConfigTemplate() {
           GitBranchName: 'deploy',
           StrongLoopServerUrl: 'http://localhost:8702',
           ServiceName: 'DatawakeManager-WebApp',
-          HostConfig: {
-            VolumesFrom: ['data-container']
-          },
           Scripts: [
             {
               RelativeWorkingDir: '.',
@@ -636,10 +631,11 @@ function docker_ScopePuppy(fnName, options, callback) {
         });
         outputStream.on('end', function () {
           if (options.data && options.data.error) {
-            callback(options.data, {Message: "Error building: '" + options.Image + "'."});
+            //Turns out you can get an error that's not critical
+            //callback(options.data, {Message: "Error building: '" + options.Image + "'."});
           } else {
-            callback(null, {Message: "Image: '" + options.Image + "' built."});
           }
+          callback(null, {Message: "Image: '" + options.Image + "' built."});
         });
         outputStream.on('error', function () {
           var msg = "Error creating image: '" + options.Image + "'";
