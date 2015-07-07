@@ -87,7 +87,7 @@ function getDockerContainerConfigTemplate() {
     },
     {
       name: 'mysql',
-      Image: 'jreeme/mysql:5.5.1',
+      Image: 'jreeme/mysql:5.5.2',
       DockerFilePath: 'docker/mysql/5.5',
       Env: ['MYSQL_ROOT_PASSWORD=root'],
       Hostname: 'mysql',
@@ -164,7 +164,7 @@ function getDockerContainerConfigTemplate() {
     },
     {
       name: 'tangelo',
-      Image: 'jreeme/tangelo:1.0',
+      Image: 'jreeme/tangelo:1.1',
       DockerFilePath: 'docker/tangelo',
       Hostname: 'tangelo',
       ExposedPorts: {

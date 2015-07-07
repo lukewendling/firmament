@@ -17,3 +17,5 @@ ENV FORENSIC_ES_URL "els.istresearch.com:9200"
 ENV FORENSIC_ES_INDEX "memex_ht"
 ENV FORENSIC_ES_CRED "memex:j9fd0LK8.a6olH24U7X81"
 ENV FORENSIC_ES_MRPN 10
+
+COPY tangelo.conf /etc/tangelo.conf
