@@ -164,16 +164,16 @@ function getDockerContainerConfigTemplate() {
     },
     {
       name: 'tangelo',
-      Image: 'jreeme/tangelo:0.9',
+      Image: 'jreeme/tangelo:1.0',
       DockerFilePath: 'docker/tangelo',
       Hostname: 'tangelo',
       ExposedPorts: {
-        '8080/tcp': {}
+        '80/tcp': {}
       },
       HostConfig: {
         Links: ['mysql:mysql','loopback:loopback'],
         PortBindings: {
-          '8080/tcp': [{HostPort: '8080'}]
+          '80/tcp': [{HostPort: '80'}]
         }
       }
     }
@@ -631,11 +631,16 @@ function docker_ScopePuppy(fnName, options, callback) {
         });
         outputStream.on('end', function () {
           if (options.data && options.data.error) {
-            //Turns out you can get an error that's not critical
-            //callback(options.data, {Message: "Error building: '" + options.Image + "'."});
+            //A sad little hack to not stop processing on the 'tag not found error'. We'll do
+            //this better next time.
+            if(options.data.error.indexOf('not found in repository') == -1){
+              callback(options.data, {Message: "Error building: '" + options.Image + "'."});
+            }else{
+              callback(null, {Message: "Image: '" + options.Image + "' built."});
+            }
           } else {
+            callback(null, {Message: "Image: '" + options.Image + "' built."});
           }
-          callback(null, {Message: "Image: '" + options.Image + "' built."});
         });
         outputStream.on('error', function () {
           var msg = "Error creating image: '" + options.Image + "'";
@@ -782,8 +787,8 @@ function docker_CreateContainer(containerConfig) {
           console.log("Container '" + fullContainerConfigCopy.name + "' built.");
           return docker_CreateContainer(containerConfig);
         } catch (ex) {
-          if(ex.message){
-            return {Message: ex.message};
+          if(ex.error){
+            return {error: ex, Message: 'Error'};
           }
           return {Message: "Unable to build from Docker file at '" + fullContainerConfigCopy.DockerFilePath + "'"};
         }
@@ -903,6 +908,9 @@ function make_ProcessContainerConfigs(containerConfigs) {
   sortedContainerConfigs.forEach(function (containerConfig) {
     console.log("Creating Docker container: '" + containerConfig.name + "'");
     var result = docker_CreateContainer(containerConfig);
+    if(result.error){
+      util_Fatal(result.error);
+    }
     console.log(result.Message);
   });
 
