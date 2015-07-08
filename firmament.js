@@ -156,7 +156,7 @@ function getDockerContainerConfigTemplate() {
             {
               RelativeWorkingDir: '.',
               Command: 'bower',
-              Args: ['install']
+              Args: ['install','--config.interactive=false']
             }
           ]
         }
