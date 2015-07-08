@@ -4,6 +4,7 @@ RUN mkdir /tmp/src && cd /tmp/src && git clone https://github.com/sotera/Datawak
 RUN cd /usr/local/share/tangelo/web && rm -rf *
 RUN cd /usr/local/share/tangelo/web && cp -R /tmp/src/Datawake/server/datawake/ .
 RUN cd /usr/local/share/tangelo/web && cp -R /tmp/src/Datawake/server/forensic/ .
+RUN cd /tmp/src && rm -rf *
 
 ENV DW_DB memex_sotera
 ENV DW_DB_USER root
