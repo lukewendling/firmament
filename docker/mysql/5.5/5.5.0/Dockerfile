@@ -1,5 +1,4 @@
 FROM ubuntu:15.04
-
 # add our user and group first to make sure their IDs get assigned consistently, regardless of whatever dependencies get added
 RUN groupadd -r mysql && useradd -r -g mysql mysql
 
@@ -17,7 +16,7 @@ RUN apt-get update && apt-get install -y libaio1 && rm -rf /var/lib/apt/lists/*
 RUN gpg --keyserver ha.pool.sks-keyservers.net --recv-keys A4A9406876FCBD3C456770C88C718D3B5072E1F5
 
 ENV MYSQL_MAJOR 5.5
-ENV MYSQL_VERSION 5.5.44
+ENV MYSQL_VERSION 5.5.45
 
 # note: we're pulling the *.asc file from mysql.he.net instead of dev.mysql.com because the official mirror 404s that file for whatever reason - maybe it's at a different path?
 RUN apt-get update && apt-get install -y curl --no-install-recommends && rm -rf /var/lib/apt/lists/* \
@@ -41,18 +40,14 @@ ENV PATH $PATH:/usr/local/mysql/bin:/usr/local/mysql/scripts
 RUN mkdir -p /etc/mysql/conf.d \
 	&& { \
 		echo '[mysqld]'; \
-		echo '!includedir /etc/mysql/conf.d/'; \
-	} > /etc/mysql/my.cnf \
-	&& { \
-		echo '[mysqld]'; \
 		echo 'user = mysql'; \
 		echo 'datadir = /var/lib/mysql'; \
-	} > /etc/mysql/conf.d/docker.cnf
+		echo '!includedir /etc/mysql/conf.d/'; \
+	} > /etc/mysql/my.cnf
 
 VOLUME /var/lib/mysql
 
 COPY docker-entrypoint.sh /entrypoint.sh
-COPY build_populated_db.sql /build_populated_db.sql
 ENTRYPOINT ["/entrypoint.sh"]
 
 EXPOSE 3306

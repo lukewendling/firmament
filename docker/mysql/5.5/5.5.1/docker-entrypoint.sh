@@ -96,7 +96,4 @@ if [ "$1" = 'mysqld' ]; then
 	chown -R mysql:mysql "$DATADIR"
 fi
 
-chmod 700 /sotera-db-oneshot.pl
-/sotera-db-oneshot.pl
-
 exec "$@"
