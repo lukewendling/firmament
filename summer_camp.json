@@ -13,7 +13,17 @@
       "MYSQL_ROOT_PASSWORD=root"
     ],
     "Hostname": "mysql",
+    "ExposedPorts": {
+      "3306/tcp": {}
+    },
     "HostConfig": {
+      "PortBindings": {
+        "3306/tcp": [
+          {
+            "HostPort": "3306"
+          }
+        ]
+      },
       "VolumesFrom": [
         "data-container"
       ]
