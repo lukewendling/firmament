@@ -7,6 +7,8 @@
 #print `sudo useradd -m -d /home/$NEW_USER -N -G adm,cdrom,sudo,dip,plugdev,lpadmin,sambashare,docker -s /bin/bash $NEW_USER`;
 #print `sudo passwd $NEW_USER`;
 
+usermod -aG docker datawake
+
 print `docker run -dt --name data-container -h data-container jreeme/data-container:7.0`;
 print `docker run -dt --volumes-from data-container --name mongo -h mongo jreeme/mongo:7.0`;
 print `docker run -dt --volumes-from data-container --name mysql -h mysql jreeme/mysql:7.0`;
