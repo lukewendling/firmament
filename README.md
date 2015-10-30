@@ -1,17 +1,17 @@
 # Firmament
 
-Perl and bash scripts to create cooperative database and web server docker containers.  Firmament also provides a much more streamlined command line interface for interacting with docker containers.
+    Perl and bash scripts to create cooperative database and web server docker containers.  Firmament also provides a much more streamlined command line interface for interacting with docker containers.
 
 ## Installation
 
-Pull the latest version.
-Run ./firmament.js init
-Firmament will download all of its dependencies.
+    Pull the latest version.
+    Run ./firmament.js init
+    Firmament will download all of its dependencies.
 
 ## Dependencies
 
-Nodejs located in ~/usr/local/bin/node
-If your node install is located somewhere else you will need to modify the top line of the firmament.js file accordingly.
+    Nodejs located in ~/usr/local/bin/node
+    If your node install is located somewhere else you will need to modify the top line of the firmament.js file accordingly.
 
 ## Usage
 
@@ -31,4 +31,4 @@ If your node install is located somewhere else you will need to modify the top l
 
 ## Credits
 
-Author: John Reeme
+    Author: John Reeme
