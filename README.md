@@ -1,6 +1,7 @@
 # Firmament
 
-Perl and bash scripts to create cooperative database and web server docker containers.  Firmament also provides a much more streamlined command line interface for interacting with docker containers.
+Perl and bash scripts to create cooperative database and web server docker containers.
+Firmament also provides a much more streamlined command line interface for interacting with docker containers.
 
 ## Installation
 
@@ -17,12 +18,9 @@ If your node install is located somewhere else you will need to modify the top l
 
 #####Docker Interaction shell:
 ./firmament.js docker
-
-You will see a docker prompt.
-
+You will see a docker prompt
 docker->>
-
-type help to get a list of all docker commands.
+type help to get a list of all docker commands
 
 #####Make Interaction Shell:
 ./firmament.js make
