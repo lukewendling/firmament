@@ -13,12 +13,6 @@ Nodejs installed under ~/usr/local/bin/node
 
 ## Usage
 
-**Docker Interaction Shell:**  
-"./firmament.js docker"  
-You will see a docker prompt  
-docker->>  
-type help to get a list of all docker commands  
-
 **Make Interaction Shell:**  
 "./firmament.js make"  
 You will see a make prompt.  
@@ -26,6 +20,14 @@ make->>
 type "help" to get a list of all make commands.  
 type "template" to generate a template firmament configuration file.  
 type "make build [filename]" to execute a firmament configuration file.  
+
+**Docker Interaction Shell:**  
+"./firmament.js docker"  
+You will see a docker prompt  
+docker->>  
+type help to get a list of all docker commands  
+
+
 
 ## Config File
 The config file is basically just a json array filled with docker container config objects.  
