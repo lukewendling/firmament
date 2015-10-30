@@ -35,7 +35,7 @@ Each config object will create and start a docker container.
 
 ```
 [{
-     "name": "webapp",
+     "name": "StrongloopWebApp",
      "Image": "jreeme/strongloop:10",
      "DockerFilePath": "docker/strong-pm",
      "Hostname": "webapp",
