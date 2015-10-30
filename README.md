@@ -9,7 +9,7 @@ Firmament will download all of its dependencies.
 
 ## Dependencies
 Nodejs installed under ~/usr/local/bin/node    
-If your node install is located somewhere else you will need to modify the top line of the firmament.js file accordingly.
+*NOTE* If your node install is located somewhere else you will need to modify the top line of the firmament.js file accordingly.
 
 ## Usage
 
