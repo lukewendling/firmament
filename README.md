@@ -15,19 +15,19 @@ If your node install is located somewhere else you will need to modify the top l
 
 ## Usage
 
-###Docker Interaction shell
-    ./firmament.js docker
-    You will see a docker prompt.
-    docker->>
-    type help to get a list of all docker commands.
+    ###Docker Interaction shell
+        ./firmament.js docker
+        You will see a docker prompt.
+        docker->>
+        type help to get a list of all docker commands.
 
-### Make Interaction Shell
-    ./firmament.js make
-    You will see a make prompt.
-    make->>
-    type "help" to get a list of all make commands.
-    type "template" to generate a template firmament configuration file.
-    type "make build [filename]" to execute a firmament configuration file.
+    ### Make Interaction Shell
+        ./firmament.js make
+        You will see a make prompt.
+        make->>
+        type "help" to get a list of all make commands.
+        type "template" to generate a template firmament configuration file.
+        type "make build [filename]" to execute a firmament configuration file.
 
 ## Credits
 
