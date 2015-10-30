@@ -17,8 +17,11 @@ If your node install is located somewhere else you will need to modify the top l
 
 #####Docker Interaction shell:
 ./firmament.js docker
+
 You will see a docker prompt.
+
 docker->>
+
 type help to get a list of all docker commands.
 
 #####Make Interaction Shell:
