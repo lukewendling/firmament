@@ -15,13 +15,13 @@ If your node install is located somewhere else you will need to modify the top l
 
 ## Usage
 
-    ###Docker Interaction shell
+    Docker Interaction shell:
         ./firmament.js docker
         You will see a docker prompt.
         docker->>
         type help to get a list of all docker commands.
 
-    ### Make Interaction Shell
+    Make Interaction Shell:
         ./firmament.js make
         You will see a make prompt.
         make->>
