@@ -27,6 +27,60 @@ type "help" to get a list of all make commands.
 type "template" to generate a template firmament configuration file.  
 type "make build [filename]" to execute a firmament configuration file.  
 
+## Config File
+The config file is basically just a json array filled with docker container config objects.  
+Each config object will create and start a docker container.  
+
+```
+[{
+     "name": "webapp",
+     "Image": "jreeme/strongloop:10",
+     "DockerFilePath": "docker/strong-pm",
+     "Hostname": "webapp",
+     "ExposedPorts": {
+       "3001/tcp": {}
+     },
+     "HostConfig": {
+       "VolumesFrom": [
+         "data-container"
+       ],
+       "PortBindings": {
+         "3001/tcp": [
+           {
+             "HostPort": "3002"
+           }
+         ],
+         "8701/tcp": [
+           {
+             "HostPort": "8702"
+           }
+         ]
+       }
+     },
+     "ExpressApps": [
+       {
+         "GitUrl": "https://github.com/User/Project",
+         "GitSrcBranchName": "master",
+         "StrongLoopBranchName": "deploy",
+         "StrongLoopServerUrl": "http://localhost:8702",
+         "ServiceName": "MyService",
+         "Scripts": [
+           {
+             "RelativeWorkingDir": "./public",
+             "Command": "bower",
+             "Args": [
+               "install",
+               "--config.interactive=false"
+             ]
+           }
+         ]
+       }
+     ]
+   }]
+```
+
+**NOTE** Firmament will run "npm install --ignore_scripts" so any npm scripts in your package.json file need to placed under the scripts section of the appropriate docker config object (see above). 
+
 ## Credits
 Author: John Reeme  
 Moral Support: Justin Lueders, Mike Frame 
