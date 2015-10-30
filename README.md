@@ -13,7 +13,7 @@ Nodejs installed under ~/usr/local/bin/node
 
 ## Usage
 
-**Docker Interaction shell:**  
+**Docker Interaction Shell:**  
 "./firmament.js docker"  
 You will see a docker prompt  
 docker->>  
