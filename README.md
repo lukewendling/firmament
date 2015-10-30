@@ -29,3 +29,4 @@ type "make build [filename]" to execute a firmament configuration file.
 
 ## Credits
 Author: John Reeme
+Moral Support: Justin Lueders, Mike Frame 
