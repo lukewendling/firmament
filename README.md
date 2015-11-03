@@ -7,6 +7,13 @@ Pull the latest version.
 Run "./firmament.js init"  
 Firmament will download all of its dependencies.  
 
+## Install-Scripts
+There is a folder named "install-scripts".  Inside of that folder there are some useful scripts to deal with setting up a ubuntu image.  
+One in particular, "useradd.sh" contains all of the requisite groups that a user might need to run firmament docker containers.  
+
+## "_docker-cleanup-volumes.sh"  
+This script will clean up after docker as it eats up disk space.  If you find yourself running low on disk space, docker is probably to blame and this script will fix that.
+
 ## Dependencies
 Nodejs installed under ~/usr/local/bin/node    
 **NOTE** If your node install is located somewhere else you will need to modify the top line of the firmament.js file accordingly.
