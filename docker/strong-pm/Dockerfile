@@ -6,6 +6,7 @@ RUN apt-get install -y vim
 RUN apt-get install -y procps
 RUN apt-get install -y curl
 RUN apt-get install -y python
+RUN apt-get install -y iputils-ping
 
 RUN curl -sL https://deb.nodesource.com/setup | bash -
 RUN apt-get install -y nodejs
