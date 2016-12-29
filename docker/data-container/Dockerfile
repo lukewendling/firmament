@@ -6,8 +6,10 @@ VOLUME /var/log/sotera
 VOLUME /usr/share/elasticsearch/data
 
 RUN ["mkdir", "/downloads"]
-RUN ["chmod", "-R", "777", "/downloads"]
+# RUN ["chmod", "-R", "777", "/downloads"]
 
 VOLUME /downloads
 
-CMD ["/bin/bash"]
+# forceful 777 in bash
+COPY ./docker-entrypoint.sh /
+ENTRYPOINT ["/docker-entrypoint.sh"]
