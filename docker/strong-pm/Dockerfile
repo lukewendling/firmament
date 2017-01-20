@@ -11,7 +11,7 @@ RUN apt-get install -y nodejs
 RUN useradd -ms /bin/bash strong-pm
 #RUN chown -R strong-pm:strong-pm /usr/local
 
-RUN npm install -g --unsafe-perm strong-pm@5.0.1 strongloop@6.0.1 && npm cache clear
+RUN npm install -g --unsafe-perm strong-pm@5.0.1 strongloop@6.0.3 && npm cache clear
 
 # Set up some semblance of an environment
 WORKDIR /home/strong-pm
