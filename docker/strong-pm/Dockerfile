@@ -5,7 +5,7 @@ ENV TERM=xterm
 RUN apt-get update && apt-get install -y \
   git vim procps curl python build-essential libkrb5-dev
 
-RUN curl -sL https://deb.nodesource.com/setup_4.x | bash -
+RUN curl -sL https://deb.nodesource.com/setup_6.x | bash -
 RUN apt-get install -y nodejs
 
 RUN useradd -ms /bin/bash strong-pm
